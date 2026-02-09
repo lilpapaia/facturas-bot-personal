@@ -1,7 +1,11 @@
 # Credenciales - NUNCA SUBIR
 service_account.json
+facturas-bot-ocr-*.json
 *.json
 !package.json
+
+# State files
+.reporting_state.json
 
 # Backups locales
 EXCELS LOCAL/
