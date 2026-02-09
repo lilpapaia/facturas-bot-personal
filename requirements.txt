@@ -1,0 +1,19 @@
+# facturas-bot-personal requirements
+# Instalar con: pip install -r requirements.txt
+
+# Google APIs
+gspread>=5.10.0
+google-auth>=2.20.0
+google-api-python-client>=2.90.0
+google-cloud-vision>=3.4.0
+
+# PDF processing
+pdfplumber>=0.10.0
+PyMuPDF>=1.23.0
+
+# Utils
+python-dateutil>=2.8.0
+Pillow>=10.0.0
+
+# File watching (opcional pero recomendado)
+watchdog>=3.0.0
