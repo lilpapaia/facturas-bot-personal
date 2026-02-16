@@ -74,13 +74,17 @@ def extract_text_any_with_mode(path: str) -> Tuple[str, str]:
             joined = "\n".join(parts).strip()
             
             if joined:
-                # Verificar que el texto sea "útil" (tiene marcadores de factura)
+                # Verificar que el texto sea "útil" (tiene marcadores de factura/recibo)
                 compact = re.sub(r"\s+", " ", joined)
                 markers = re.search(
-                    r"\b(factura|invoice|subtotal|base imponible|iva|vat|total factura|no\.\s*document|n[uú]mero)\b",
+                    r"\b(factura|invoice|subtotal|base imponible|iva|vat|total|"
+                    r"no\.\s*document|n[uú]mero|importe|cargo|abono|"
+                    r"domiciliaci[oó]n|tgss|aut[oó]nomos|cotizaci[oó]n|"
+                    r"periodo|liquidaci[oó]n|caixabank|banco|transferencia)\b",
                     joined, re.IGNORECASE
                 )
-                if len(compact) >= 80 and markers:
+                # Si hay suficiente texto (>50 chars), aceptarlo aunque no tenga marcadores
+                if len(compact) >= 50 and (markers or len(compact) >= 200):
                     return joined, "pdf_text"
         except Exception:
             pass

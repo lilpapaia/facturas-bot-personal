@@ -2,12 +2,13 @@
 # sync_reporting.py
 """
 Sincroniza registro_ingresos, registro_gastos, clientes + backup XLSX.
-Versión PERSONAL - solo un Sheet.
+Versión PERSONAL - simplificada, sin proveedores.
 """
 import os
 import re
 import io
 import sys
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import warnings
@@ -28,9 +29,7 @@ from config.settings import (
     WS_INGRESOS,
     WS_GASTOS,
     WS_CLIENTES,
-    WS_PROVEEDORES,
     WS_CONFIG,
-    WS_HACIENDA,
     BACKUP_PERSONAL,
     EXCELS_LOCAL_DIR,
     GOOGLE_SCOPES,
@@ -132,6 +131,7 @@ def chunked_update(ws, start_cell_a1: str, values: List[List[Any]], chunk_rows: 
         block = norm[i:i + chunk_rows]
         rng = build_a1_range(start_row + i, start_col, len(block), n_cols)
         ws.update(range_name=rng, values=block, value_input_option="USER_ENTERED")
+        time.sleep(1)  # Evitar rate limit
 
 
 def hex_to_rgb01(hex_color: str) -> Dict[str, float]:
@@ -230,19 +230,37 @@ def read_movimientos(ws_mov) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for r in raw[1:]:
         fecha = get(r, "fecha")
-        if not fecha:
+        anio_trimestre_raw = get(r, "anio_trimestre")
+        
+        # Necesitamos al menos fecha o anio_trimestre
+        if not fecha and not anio_trimestre_raw:
             continue
+            
         row = {h: (r[idx[h]].strip() if idx[h] < len(r) else "") for h in idx.keys()}
-        try:
-            y = int(fecha[:4])
-            mes = int(fecha[5:7])
-            q = (mes - 1) // 3 + 1
-            row["anio"] = str(y)
-            row["trimestre"] = str(q)
-            row["anio_trimestre"] = f"{y}-Q{q}"
-        except Exception:
-            pass
-        out.append(row)
+        
+        # Calcular año/trimestre desde fecha
+        if fecha:
+            try:
+                y = int(fecha[:4])
+                mes = int(fecha[5:7])
+                q = (mes - 1) // 3 + 1
+                row["anio"] = str(y)
+                row["trimestre"] = str(q)
+                row["anio_trimestre"] = f"{y}-Q{q}"
+            except Exception:
+                pass
+        
+        # Si no hay fecha pero sí anio_trimestre, parsear de ahí
+        if not row.get("anio") and anio_trimestre_raw:
+            # Formato esperado: "2025-Q4"
+            m = re.match(r"(\d{4})-Q(\d)", anio_trimestre_raw)
+            if m:
+                row["anio"] = m.group(1)
+                row["trimestre"] = m.group(2)
+                row["anio_trimestre"] = anio_trimestre_raw
+        
+        if row.get("anio"):
+            out.append(row)
     return out
 
 
@@ -293,95 +311,6 @@ def build_clientes_rows_for_year(movs: List[Dict[str, Any]], year: int) -> List[
         rows.append([cli, data["tax_id"], data["n_facturas"], round(data["total"], 2)])
     
     return rows
-
-
-# =========================
-# Proveedores stats
-# =========================
-def update_proveedores_stats(ws_prov, movs: List[Dict[str, Any]]):
-    """Actualiza estadísticas de proveedores."""
-    gastos = [m for m in movs if (m.get("tipo") or "").lower() == "gasto"]
-    
-    prov_stats: Dict[str, Dict[str, Any]] = {}
-    for m in gastos:
-        tid = (m.get("tax_id") or "").strip().upper()
-        if not tid:
-            continue
-        
-        if tid not in prov_stats:
-            prov_stats[tid] = {
-                "n_gastos": 0,
-                "total": 0.0,
-                "meses": set(),
-                "fechas": [],
-                "ultimo": None,
-            }
-        
-        prov_stats[tid]["n_gastos"] += 1
-        prov_stats[tid]["total"] += parse_amount(m.get("total"))
-        
-        fecha = m.get("fecha", "")
-        if fecha:
-            prov_stats[tid]["fechas"].append(fecha)
-            try:
-                mes = fecha[:7]
-                prov_stats[tid]["meses"].add(mes)
-            except:
-                pass
-            if not prov_stats[tid]["ultimo"] or fecha > prov_stats[tid]["ultimo"]:
-                prov_stats[tid]["ultimo"] = fecha
-    
-    # Leer headers
-    headers = ws_prov.row_values(1)
-    hm = {h.lower().strip(): i + 1 for i, h in enumerate(headers)}
-    
-    tax_col = hm.get("tax_id") or hm.get("cif")
-    n_col = hm.get("n_gastos")
-    total_col = hm.get("total_gastado") or hm.get("total")
-    rec_col = hm.get("recurrente")
-    freq_col = hm.get("frecuencia")
-    ultimo_col = hm.get("ultimo_gasto")
-    
-    if not tax_col:
-        return
-    
-    tax_ids = ws_prov.col_values(tax_col)
-    updates = []
-    
-    for row_idx, tid in enumerate(tax_ids[1:], start=2):
-        tid_norm = tid.strip().upper()
-        if tid_norm not in prov_stats:
-            continue
-        
-        stats = prov_stats[tid_norm]
-        
-        if rec_col:
-            recurrente = "SI" if len(stats["meses"]) >= 3 else "NO"
-            updates.append({
-                "range": gspread.utils.rowcol_to_a1(row_idx, rec_col),
-                "values": [[recurrente]]
-            })
-        
-        if n_col:
-            updates.append({
-                "range": gspread.utils.rowcol_to_a1(row_idx, n_col),
-                "values": [[stats["n_gastos"]]]
-            })
-        
-        if total_col:
-            updates.append({
-                "range": gspread.utils.rowcol_to_a1(row_idx, total_col),
-                "values": [[round(stats["total"], 2)]]
-            })
-        
-        if ultimo_col and stats["ultimo"]:
-            updates.append({
-                "range": gspread.utils.rowcol_to_a1(row_idx, ultimo_col),
-                "values": [[stats["ultimo"]]]
-            })
-    
-    if updates:
-        ws_prov.batch_update(updates, value_input_option="USER_ENTERED")
 
 
 # =========================
@@ -463,6 +392,8 @@ def sync_sheet(sheet_id: str, name: str, backup_path: str):
     active_year = get_active_year(sh, movs)
     print(f"  Año activo: {active_year}")
 
+    time.sleep(1)  # Evitar rate limit
+
     # CLIENTES
     try:
         ws_cli = sh.worksheet(WS_CLIENTES)
@@ -470,21 +401,14 @@ def sync_sheet(sheet_id: str, name: str, backup_path: str):
         clientes_values = build_clientes_rows_for_year(movs, active_year)
         chunked_update(ws_cli, "A1", clientes_values, chunk_rows=400)
         print(f"  ✓ clientes: {len(clientes_values)} filas")
+    except gspread.WorksheetNotFound:
+        print(f"  - clientes: pestaña no existe (omitido)")
     except Exception as e:
         print(f"  ✗ clientes: {e}")
 
-    # PROVEEDORES
-    try:
-        ws_prov = sh.worksheet(WS_PROVEEDORES)
-        update_proveedores_stats(ws_prov, movs)
-        n_prov = len(ws_prov.col_values(1)) - 1
-        print(f"  ✓ proveedores: {n_prov} actualizados")
-    except gspread.WorksheetNotFound:
-        print(f"  - proveedores: pestaña no existe (omitido)")
-    except Exception as e:
-        print(f"  ✗ proveedores: {e}")
+    time.sleep(1)  # Evitar rate limit
 
-    # REGISTROS
+    # REGISTROS (ingresos y gastos)
     registro_targets = [
         (WS_INGRESOS, "ingreso", "REGISTRO INGRESOS (auto)"),
         (WS_GASTOS, "gasto", "REGISTRO GASTOS (auto)"),
@@ -501,10 +425,14 @@ def sync_sheet(sheet_id: str, name: str, backup_path: str):
             chunked_update(ws, "A1", registro_values, chunk_rows=400)
             registro_written.append((ws, fmt, len(registro_values)))
             print(f"  ✓ {ws_name}: {len(registro_values)} filas")
+        except gspread.WorksheetNotFound:
+            print(f"  - {ws_name}: pestaña no existe (omitido)")
         except Exception as e:
             print(f"  ✗ {ws_name}: {e}")
+        
+        time.sleep(1)  # Evitar rate limit
 
-    # FORMATO
+    # FORMATO (colores)
     requests = []
 
     try:
@@ -522,22 +450,6 @@ def sync_sheet(sheet_id: str, name: str, backup_path: str):
     except Exception:
         pass
 
-    try:
-        ws_prov = sh.worksheet(WS_PROVEEDORES)
-        prov_sheet_id = ws_prov.id
-        n_prov_cols = max(1, len(ws_prov.row_values(1)))
-        requests.append(fmt_request(prov_sheet_id, 0, 1, 0, n_prov_cols, COLOR_HDR_BG, COLOR_WHITE, bold=True, center=True))
-    except Exception:
-        pass
-
-    try:
-        ws_hac = sh.worksheet(WS_HACIENDA)
-        hac_headers = ws_hac.row_values(4)
-        n_hac_cols = max(1, len([x for x in hac_headers if x != ""]))
-        requests.append(fmt_request(ws_hac.id, 3, 4, 0, n_hac_cols, COLOR_HDR_BG, COLOR_WHITE, bold=True, center=True))
-    except Exception:
-        pass
-
     for ws, fmt, _nrows in registro_written:
         reg_sheet_id = ws.id
         width = len(REG_COLUMNS)
@@ -552,6 +464,8 @@ def sync_sheet(sheet_id: str, name: str, backup_path: str):
     if requests:
         sh.batch_update({"requests": requests})
         print(f"  ✓ Formato aplicado")
+
+    time.sleep(1)  # Evitar rate limit
 
     # BACKUP
     try:

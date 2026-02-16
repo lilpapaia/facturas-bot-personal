@@ -1,6 +1,7 @@
 # gastos/processor.py
 """
 Procesador principal de gastos para PERSONAL.
+Sin gestión de proveedores.
 """
 import os
 from datetime import datetime
@@ -11,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from core.ocr import extract_text_any_with_mode
 from core.file_utils import move_to
-from core.sheets import append_movimiento_with_dedupe, get_proveedor_categoria, upsert_proveedor
+from core.sheets import append_movimiento_with_dedupe
 
 from .parser import (
     find_date_gasto,
@@ -68,9 +69,8 @@ def process_gasto(path: str, scope: str = "personal", subtipo: str = "factura") 
         except:
             pass
     
-    # Determinar ámbito y categoría
+    # Determinar ámbito
     ambito = determine_ambito(tax_id, text)
-    categoria = get_proveedor_categoria(tax_id, scope) or ""
     
     data = {
         "procesado_el": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -87,7 +87,7 @@ def process_gasto(path: str, scope: str = "personal", subtipo: str = "factura") 
         "total": total if total else "",
         "moneda": "EUR",
         "ambito": ambito,
-        "categoria": categoria,
+        "categoria": "",  # Sin gestión de categorías
         "archivo_drive": filename,
         "drive_file_id": "",
         "review_reason": "",
@@ -114,11 +114,7 @@ def process_gasto(path: str, scope: str = "personal", subtipo: str = "factura") 
         move_to(path, ok=False)
         return {"status": "error", "reason": "error_sheets", "data": data}
     
-    # 7. Actualizar proveedor si tiene CIF
-    if tax_id:
-        upsert_proveedor(data, scope)
-    
-    # 8. Mover a procesadas
+    # 7. Mover a procesadas
     move_to(path, ok=True)
     
     return {"status": "processed", "row": row, "data": data}

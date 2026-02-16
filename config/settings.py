@@ -13,16 +13,14 @@ SHEET_ID_PERSONAL = "1putS_YxGiLGiBzaFxCIzrF6p5AsNxQJoX0EYTDsfen0"
 # Alias para compatibilidad
 SHEET_ID = SHEET_ID_PERSONAL
 
-# Pestañas
+# Pestañas (sin proveedores ni hacienda - se calculan en el sheet)
 WS_MOVIMIENTOS = "movimientos"
 WS_GASTOS = "registro_gastos"
 WS_INGRESOS = "registro_ingresos"
 WS_REGISTRO_GASTOS = "registro_gastos"
 WS_REGISTRO_INGRESOS = "registro_ingresos"
 WS_CLIENTES = "clientes"
-WS_PROVEEDORES = "proveedores"
 WS_CONFIG = "config"
-WS_HACIENDA = "hacienda"
 
 # Celda con año activo
 CFG_YEAR_CELL = "B2"
@@ -31,8 +29,8 @@ CFG_YEAR_CELL = "B2"
 # RUTAS DE ARCHIVOS
 # =========================
 POSSIBLE_ROOTS = [
-    r"C:\Users\lilpa\OneDrive\Escritorio\facturas-drive",  # Portátil
-    r"G:\Otros ordenadores\Mi portátil\facturas-drive",    # Torre
+    r"C:\Users\lilpa\OneDrive\Escritorio\facturas-drive",  # Portátil (OneDrive)
+    r"G:\Otros ordenadores\Mi portátil\facturas-drive",    # Torre (Google Drive)
 ]
 
 def _detect_facturas_root() -> str:
