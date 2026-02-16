@@ -57,8 +57,10 @@ def check_password():
 @st.cache_resource
 def get_gspread_client():
     """Conecta con Google Sheets usando secrets."""
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = Credentials.from_service_account_info(dict(creds_dict), scopes=SCOPES)
+    # Leer el JSON directamente desde secrets
+    creds_json = st.secrets["gcp_service_account_json"]
+    creds_dict = json.loads(creds_json)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     return gspread.authorize(creds)
 
 
