@@ -1,12 +1,12 @@
 """
 Facturas Bot - Panel de Control Personal
-Streamlit App con autenticación - VERSION DEBUG
+Streamlit App con autenticación
 """
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from datetime import datetime
+import re
 
 # =========================
 # CONFIGURACIÓN
@@ -16,11 +16,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
-
-# =========================
-# DEBUG MODE - cambiar a False cuando funcione
-# =========================
-DEBUG = True
 
 # =========================
 # AUTENTICACIÓN
@@ -56,46 +51,55 @@ def check_password():
 
 
 # =========================
+# ARREGLAR PRIVATE KEY
+# =========================
+def fix_private_key(pk):
+    """Arregla el formato de la private_key."""
+    # Quitar espacios y saltos de línea extras
+    pk = pk.strip()
+    
+    # Extraer el contenido entre BEGIN y END
+    match = re.search(r'-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----', pk, re.DOTALL)
+    if not match:
+        return pk
+    
+    content = match.group(1).strip()
+    
+    # Quitar todos los espacios y saltos de línea del contenido
+    content = re.sub(r'\s+', '', content)
+    
+    # Reconstruir con el formato correcto (líneas de 64 caracteres)
+    lines = [content[i:i+64] for i in range(0, len(content), 64)]
+    
+    # Construir la clave correctamente
+    fixed = "-----BEGIN PRIVATE KEY-----\n"
+    fixed += "\n".join(lines)
+    fixed += "\n-----END PRIVATE KEY-----\n"
+    
+    return fixed
+
+
+# =========================
 # CONEXIÓN GOOGLE SHEETS
 # =========================
+@st.cache_resource
 def get_gspread_client():
     """Conecta con Google Sheets usando secrets."""
-    try:
-        # Obtener credenciales
-        gcp_secrets = st.secrets["gcp_service_account"]
-        
-        if DEBUG:
-            st.write("### 🔍 DEBUG INFO")
-            st.write(f"**Keys en gcp_service_account:** {list(gcp_secrets.keys())}")
-            st.write(f"**project_id:** {gcp_secrets.get('project_id', 'NO ENCONTRADO')}")
-            st.write(f"**client_email:** {gcp_secrets.get('client_email', 'NO ENCONTRADO')}")
-            
-            pk = gcp_secrets.get('private_key', '')
-            st.write(f"**private_key length:** {len(pk)} caracteres")
-            st.write(f"**private_key empieza con:** {pk[:50]}...")
-            st.write(f"**private_key termina con:** ...{pk[-50:]}")
-            st.write(f"**Contiene saltos de linea reales:** {'SI' if chr(10) in pk else 'NO'}")
-            st.write(f"**Contiene \\\\n literal:** {'SI' if '\\n' in pk.replace(chr(10), '') else 'NO'}")
-        
-        creds_dict = dict(gcp_secrets)
-        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        return gspread.authorize(creds)
-        
-    except Exception as e:
-        st.error(f"Error en get_gspread_client: {e}")
-        if DEBUG:
-            import traceback
-            st.code(traceback.format_exc())
-        return None
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    
+    # Arreglar el formato de private_key
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = fix_private_key(creds_dict["private_key"])
+    
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return gspread.authorize(creds)
 
 
+@st.cache_data(ttl=300)
 def load_movimientos():
     """Carga datos de movimientos."""
     try:
         gc = get_gspread_client()
-        if gc is None:
-            return pd.DataFrame()
-            
         sh = gc.open_by_key(SHEET_ID)
         ws = sh.worksheet("movimientos")
         data = ws.get_all_records()
@@ -103,9 +107,6 @@ def load_movimientos():
         return df
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
-        if DEBUG:
-            import traceback
-            st.code(traceback.format_exc())
         return pd.DataFrame()
 
 
