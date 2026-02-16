@@ -1,6 +1,6 @@
 """
 Facturas Bot - Panel de Control Personal
-Streamlit App con autenticación
+Streamlit App con autenticación - VERSION DEBUG
 """
 import streamlit as st
 import gspread
@@ -16,6 +16,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
+
+# =========================
+# DEBUG MODE - cambiar a False cuando funcione
+# =========================
+DEBUG = True
 
 # =========================
 # AUTENTICACIÓN
@@ -53,25 +58,44 @@ def check_password():
 # =========================
 # CONEXIÓN GOOGLE SHEETS
 # =========================
-@st.cache_resource
 def get_gspread_client():
     """Conecta con Google Sheets usando secrets."""
-    # Obtener credenciales y convertir a dict
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    
-    # IMPORTANTE: Convertir los \n literales en saltos de línea reales
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-    
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return gspread.authorize(creds)
+    try:
+        # Obtener credenciales
+        gcp_secrets = st.secrets["gcp_service_account"]
+        
+        if DEBUG:
+            st.write("### 🔍 DEBUG INFO")
+            st.write(f"**Keys en gcp_service_account:** {list(gcp_secrets.keys())}")
+            st.write(f"**project_id:** {gcp_secrets.get('project_id', 'NO ENCONTRADO')}")
+            st.write(f"**client_email:** {gcp_secrets.get('client_email', 'NO ENCONTRADO')}")
+            
+            pk = gcp_secrets.get('private_key', '')
+            st.write(f"**private_key length:** {len(pk)} caracteres")
+            st.write(f"**private_key empieza con:** {pk[:50]}...")
+            st.write(f"**private_key termina con:** ...{pk[-50:]}")
+            st.write(f"**Contiene saltos de linea reales:** {'SI' if chr(10) in pk else 'NO'}")
+            st.write(f"**Contiene \\\\n literal:** {'SI' if '\\n' in pk.replace(chr(10), '') else 'NO'}")
+        
+        creds_dict = dict(gcp_secrets)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        return gspread.authorize(creds)
+        
+    except Exception as e:
+        st.error(f"Error en get_gspread_client: {e}")
+        if DEBUG:
+            import traceback
+            st.code(traceback.format_exc())
+        return None
 
 
-@st.cache_data(ttl=300)  # Cache 5 minutos
 def load_movimientos():
     """Carga datos de movimientos."""
     try:
         gc = get_gspread_client()
+        if gc is None:
+            return pd.DataFrame()
+            
         sh = gc.open_by_key(SHEET_ID)
         ws = sh.worksheet("movimientos")
         data = ws.get_all_records()
@@ -79,6 +103,9 @@ def load_movimientos():
         return df
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
+        if DEBUG:
+            import traceback
+            st.code(traceback.format_exc())
         return pd.DataFrame()
 
 
@@ -90,7 +117,6 @@ def calcular_resumen(df, year):
     if df.empty:
         return pd.DataFrame()
     
-    # Filtrar por año
     df = df[df['anio_trimestre'].str.startswith(str(year))].copy()
     
     resumen = []
@@ -106,7 +132,6 @@ def calcular_resumen(df, year):
         irpf = pd.to_numeric(ingresos['irpf'], errors='coerce').sum()
         
         base_gas = pd.to_numeric(gastos['base'], errors='coerce').sum()
-        # Solo IVA deducible
         gastos_ded = gastos[gastos['iva_deducible'].str.upper() == 'SI']
         iva_sop = pd.to_numeric(gastos_ded['iva'], errors='coerce').sum()
         
@@ -133,11 +158,9 @@ def main():
         layout="wide"
     )
     
-    # Verificar autenticación
     if not check_password():
         return
     
-    # Header
     col1, col2 = st.columns([6, 1])
     with col1:
         st.title("🧾 Facturas Bot")
@@ -146,18 +169,15 @@ def main():
             st.session_state["authenticated"] = False
             st.rerun()
     
-    # Cargar datos
     df = load_movimientos()
     
     if df.empty:
         st.warning("No hay datos en el Sheet")
         return
     
-    # Selector de año
     years = sorted(df['anio_trimestre'].str[:4].unique(), reverse=True)
     year = st.selectbox("Año", years, index=0)
     
-    # Métricas principales
     resumen = calcular_resumen(df, year)
     
     if not resumen.empty:
@@ -171,13 +191,11 @@ def main():
     
     st.divider()
     
-    # Pestañas
     tab1, tab2, tab3 = st.tabs(["📊 Resumen IVA", "📄 Facturas", "📤 Subir"])
     
     with tab1:
         st.subheader("Resumen IVA Trimestral")
         if not resumen.empty:
-            # Formatear números
             st.dataframe(
                 resumen.style.format({
                     'Base Ingresos': '{:,.2f} €',
@@ -190,19 +208,14 @@ def main():
                 use_container_width=True,
                 hide_index=True,
             )
-            
-            # Totales
             st.markdown("---")
             st.markdown(f"**Total IVA a Pagar/Devolver: {totales['IVA Neto']:,.2f} €**")
     
     with tab2:
         st.subheader("Facturas del Año")
-        
-        # Filtrar por año
         df_year = df[df['anio_trimestre'].str.startswith(str(year))].copy()
         
         if not df_year.empty:
-            # Filtro por tipo
             tipo_filter = st.radio("Filtrar", ["Todos", "Ingresos", "Gastos"], horizontal=True)
             
             if tipo_filter == "Ingresos":
@@ -210,7 +223,6 @@ def main():
             elif tipo_filter == "Gastos":
                 df_year = df_year[df_year['tipo'].str.lower() == 'gasto']
             
-            # Mostrar tabla
             cols_show = ['fecha', 'tipo', 'proveedor_cliente', 'numero_factura', 'base', 'iva', 'total']
             cols_exist = [c for c in cols_show if c in df_year.columns]
             
@@ -219,23 +231,19 @@ def main():
                 use_container_width=True,
                 hide_index=True,
             )
-            
             st.caption(f"Total: {len(df_year)} facturas")
         else:
             st.info("No hay facturas este año")
     
     with tab3:
         st.subheader("Subir Factura")
-        
         uploaded = st.file_uploader(
             "Arrastra o selecciona tu factura",
             type=['pdf', 'jpg', 'jpeg', 'png'],
-            help="La factura se guardará en tu carpeta INBOX para procesar"
         )
-        
         if uploaded:
             st.success(f"✅ Archivo: {uploaded.name}")
-            st.info("⚠️ Función de subida pendiente de conectar con Google Drive")
+            st.info("⚠️ Función de subida pendiente")
 
 
 if __name__ == "__main__":
