@@ -1,6 +1,6 @@
 """
 Facturas Bot - Panel de Control Personal
-Streamlit App con autenticación
+Streamlit App con autenticación - DEBUG + FIX
 """
 import streamlit as st
 import gspread
@@ -16,6 +16,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
+
+DEBUG = True
 
 # =========================
 # AUTENTICACIÓN
@@ -55,18 +57,31 @@ def check_password():
 # =========================
 def fix_private_key(pk):
     """Arregla el formato de la private_key."""
+    if DEBUG:
+        st.write("### 🔧 ANTES del fix:")
+        st.write(f"Longitud: {len(pk)}")
+        st.write(f"Primeros 80 chars: `{pk[:80]}`")
+    
     # Quitar espacios y saltos de línea extras
     pk = pk.strip()
     
     # Extraer el contenido entre BEGIN y END
     match = re.search(r'-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----', pk, re.DOTALL)
     if not match:
+        st.error("No se encontró el patrón BEGIN/END PRIVATE KEY")
         return pk
     
     content = match.group(1).strip()
     
+    if DEBUG:
+        st.write(f"Contenido extraído (primeros 50): `{content[:50]}`")
+    
     # Quitar todos los espacios y saltos de línea del contenido
     content = re.sub(r'\s+', '', content)
+    
+    if DEBUG:
+        st.write(f"Contenido limpio (primeros 50): `{content[:50]}`")
+        st.write(f"Longitud contenido limpio: {len(content)}")
     
     # Reconstruir con el formato correcto (líneas de 64 caracteres)
     lines = [content[i:i+64] for i in range(0, len(content), 64)]
@@ -76,23 +91,51 @@ def fix_private_key(pk):
     fixed += "\n".join(lines)
     fixed += "\n-----END PRIVATE KEY-----\n"
     
+    if DEBUG:
+        st.write("### 🔧 DESPUÉS del fix:")
+        st.write(f"Longitud: {len(fixed)}")
+        st.write(f"Primeros 80 chars: `{fixed[:80]}`")
+        st.write(f"Número de líneas: {len(fixed.split(chr(10)))}")
+    
     return fixed
 
 
 # =========================
 # CONEXIÓN GOOGLE SHEETS
 # =========================
-@st.cache_resource
 def get_gspread_client():
     """Conecta con Google Sheets usando secrets."""
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    
-    # Arreglar el formato de private_key
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = fix_private_key(creds_dict["private_key"])
-    
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return gspread.authorize(creds)
+    try:
+        gcp_secrets = st.secrets["gcp_service_account"]
+        
+        if DEBUG:
+            st.write("### 🔍 DEBUG - Secrets")
+            st.write(f"**project_id:** {gcp_secrets.get('project_id', 'NO')}")
+            st.write(f"**client_email:** {gcp_secrets.get('client_email', 'NO')}")
+        
+        creds_dict = dict(gcp_secrets)
+        
+        # Arreglar el formato de private_key
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = fix_private_key(creds_dict["private_key"])
+        
+        if DEBUG:
+            st.write("### 🔑 Intentando conectar con Google...")
+        
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        
+        if DEBUG:
+            st.success("✅ Conexión exitosa!")
+        
+        return client
+        
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
+        if DEBUG:
+            import traceback
+            st.code(traceback.format_exc())
+        return None
 
 
 @st.cache_data(ttl=300)
@@ -100,6 +143,8 @@ def load_movimientos():
     """Carga datos de movimientos."""
     try:
         gc = get_gspread_client()
+        if gc is None:
+            return pd.DataFrame()
         sh = gc.open_by_key(SHEET_ID)
         ws = sh.worksheet("movimientos")
         data = ws.get_all_records()
@@ -114,7 +159,6 @@ def load_movimientos():
 # CÁLCULOS
 # =========================
 def calcular_resumen(df, year):
-    """Calcula resumen IVA/IRPF por trimestre."""
     if df.empty:
         return pd.DataFrame()
     
