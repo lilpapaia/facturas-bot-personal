@@ -7,7 +7,6 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
-import json
 
 # =========================
 # CONFIGURACIÓN
@@ -57,9 +56,7 @@ def check_password():
 @st.cache_resource
 def get_gspread_client():
     """Conecta con Google Sheets usando secrets."""
-    # Leer el JSON directamente desde secrets
-    creds_json = st.secrets["gcp_service_account_json"]
-    creds_dict = json.loads(creds_json)
+    creds_dict = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     return gspread.authorize(creds)
 
@@ -233,8 +230,6 @@ def main():
         if uploaded:
             st.success(f"✅ Archivo: {uploaded.name}")
             st.info("⚠️ Función de subida pendiente de conectar con Google Drive")
-            # TODO: Implementar subida a Google Drive
-            # Requiere scope adicional y configuración
 
 
 if __name__ == "__main__":
