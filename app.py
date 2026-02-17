@@ -1,6 +1,6 @@
 """
 Facturas Bot - Panel de Control Personal
-DEBUG VERSION - SIN CACHE
+Versión Final
 """
 import streamlit as st
 import gspread
@@ -16,8 +16,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
-
-DEBUG = True
 
 # =========================
 # AUTENTICACIÓN
@@ -55,106 +53,53 @@ def check_password():
 # =========================
 def fix_private_key(pk):
     """Arregla el formato de la private_key."""
-    
-    # 1. Extraer SOLO la parte base64 (quitar headers y todo lo demás)
-    # Buscar el contenido entre BEGIN y END
     match = re.search(r'-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----', pk, re.DOTALL)
-    
     if not match:
-        st.error("❌ No se encontró BEGIN/END PRIVATE KEY")
         return pk
     
-    # 2. Obtener solo el contenido base64
     content = match.group(1)
-    
-    # 3. Limpiar: quitar TODOS los espacios, tabs, saltos de línea
     content_clean = re.sub(r'\s+', '', content)
+    lines = [content_clean[i:i+64] for i in range(0, len(content_clean), 64)]
     
-    if DEBUG:
-        st.write(f"**Contenido base64 limpio:** {len(content_clean)} caracteres")
-    
-    # 4. Reconstruir con formato PEM correcto (líneas de 64 chars)
-    lines = []
-    for i in range(0, len(content_clean), 64):
-        lines.append(content_clean[i:i+64])
-    
-    # 5. Construir la clave final
-    fixed_key = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n"
-    
-    if DEBUG:
-        st.write(f"**Clave reconstruida:** {len(fixed_key)} caracteres, {len(lines)+2} líneas")
-        # Mostrar primeras líneas para verificar formato
-        first_lines = fixed_key.split('\n')[:3]
-        st.code('\n'.join(first_lines) + '\n...')
-    
-    return fixed_key
+    return "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n"
 
 
 # =========================
 # CONEXIÓN GOOGLE SHEETS
 # =========================
+@st.cache_resource
 def get_gspread_client():
-    """Conecta con Google Sheets - SIN CACHE."""
-    try:
-        gcp_secrets = st.secrets["gcp_service_account"]
-        
-        if DEBUG:
-            st.write("### 🔍 Verificando credenciales...")
-            st.write(f"**project_id:** `{gcp_secrets.get('project_id')}`")
-            st.write(f"**client_email:** `{gcp_secrets.get('client_email')}`")
-        
-        # Crear diccionario de credenciales
-        creds_dict = {
-            "type": gcp_secrets["type"],
-            "project_id": gcp_secrets["project_id"],
-            "private_key_id": gcp_secrets["private_key_id"],
-            "private_key": fix_private_key(gcp_secrets["private_key"]),  # <-- ARREGLADA
-            "client_email": gcp_secrets["client_email"],
-            "client_id": gcp_secrets["client_id"],
-            "auth_uri": gcp_secrets["auth_uri"],
-            "token_uri": gcp_secrets["token_uri"],
-            "auth_provider_x509_cert_url": gcp_secrets["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": gcp_secrets["client_x509_cert_url"],
-        }
-        
-        if DEBUG:
-            st.write("### 🔑 Conectando a Google...")
-        
-        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        client = gspread.authorize(creds)
-        
-        # Probar la conexión realmente
-        if DEBUG:
-            st.write("### 📊 Probando acceso al Sheet...")
-        
-        sh = client.open_by_key(SHEET_ID)
-        
-        if DEBUG:
-            st.success(f"✅ Conectado a: {sh.title}")
-        
-        return client
-        
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
-        if DEBUG:
-            import traceback
-            st.code(traceback.format_exc())
-        return None
-
-
-def load_movimientos():
-    """Carga datos - SIN CACHE."""
-    gc = get_gspread_client()
-    if gc is None:
-        return pd.DataFrame()
+    """Conecta con Google Sheets."""
+    gcp_secrets = st.secrets["gcp_service_account"]
     
+    creds_dict = {
+        "type": gcp_secrets["type"],
+        "project_id": gcp_secrets["project_id"],
+        "private_key_id": gcp_secrets["private_key_id"],
+        "private_key": fix_private_key(gcp_secrets["private_key"]),
+        "client_email": gcp_secrets["client_email"],
+        "client_id": gcp_secrets["client_id"],
+        "auth_uri": gcp_secrets["auth_uri"],
+        "token_uri": gcp_secrets["token_uri"],
+        "auth_provider_x509_cert_url": gcp_secrets["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": gcp_secrets["client_x509_cert_url"],
+    }
+    
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    return gspread.authorize(creds)
+
+
+@st.cache_data(ttl=300)
+def load_movimientos():
+    """Carga datos de movimientos."""
     try:
+        gc = get_gspread_client()
         sh = gc.open_by_key(SHEET_ID)
         ws = sh.worksheet("movimientos")
         data = ws.get_all_records()
         return pd.DataFrame(data)
     except Exception as e:
-        st.error(f"Error cargando movimientos: {e}")
+        st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
 
 
@@ -219,9 +164,11 @@ def main():
         st.warning("No hay datos en el Sheet")
         return
     
+    # Selector de año
     years = sorted(df['anio_trimestre'].str[:4].unique(), reverse=True)
     year = st.selectbox("Año", years, index=0)
     
+    # Métricas principales
     resumen = calcular_resumen(df, year)
     
     if not resumen.empty:
@@ -235,22 +182,60 @@ def main():
     
     st.divider()
     
+    # Pestañas
     tab1, tab2, tab3 = st.tabs(["📊 Resumen IVA", "📄 Facturas", "📤 Subir"])
     
     with tab1:
         st.subheader("Resumen IVA Trimestral")
         if not resumen.empty:
-            st.dataframe(resumen, use_container_width=True, hide_index=True)
+            st.dataframe(
+                resumen.style.format({
+                    'Base Ingresos': '{:,.2f} €',
+                    'IVA Repercutido': '{:,.2f} €',
+                    'IRPF Retenido': '{:,.2f} €',
+                    'Base Gastos': '{:,.2f} €',
+                    'IVA Soportado': '{:,.2f} €',
+                    'IVA Neto': '{:,.2f} €',
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.markdown("---")
+            st.markdown(f"**Total IVA a Pagar/Devolver: {totales['IVA Neto']:,.2f} €**")
     
     with tab2:
         st.subheader("Facturas del Año")
         df_year = df[df['anio_trimestre'].str.startswith(str(year))].copy()
+        
         if not df_year.empty:
-            st.dataframe(df_year, use_container_width=True, hide_index=True)
+            tipo_filter = st.radio("Filtrar", ["Todos", "Ingresos", "Gastos"], horizontal=True)
+            
+            if tipo_filter == "Ingresos":
+                df_year = df_year[df_year['tipo'].str.lower() == 'ingreso']
+            elif tipo_filter == "Gastos":
+                df_year = df_year[df_year['tipo'].str.lower() == 'gasto']
+            
+            cols_show = ['fecha', 'tipo', 'proveedor_cliente', 'numero_factura', 'base', 'iva', 'total']
+            cols_exist = [c for c in cols_show if c in df_year.columns]
+            
+            st.dataframe(
+                df_year[cols_exist].sort_values('fecha', ascending=False),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(f"Total: {len(df_year)} facturas")
+        else:
+            st.info("No hay facturas este año")
     
     with tab3:
         st.subheader("Subir Factura")
-        st.info("Próximamente")
+        uploaded = st.file_uploader(
+            "Arrastra o selecciona tu factura",
+            type=['pdf', 'jpg', 'jpeg', 'png'],
+        )
+        if uploaded:
+            st.success(f"✅ Archivo: {uploaded.name}")
+            st.info("⚠️ Función de subida pendiente de implementar")
 
 
 if __name__ == "__main__":
