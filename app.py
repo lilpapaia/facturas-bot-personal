@@ -65,38 +65,6 @@ def fix_private_key(pk):
 
 
 # =========================
-# CONVERTIR NÚMEROS
-# =========================
-def parse_number(val):
-    """Convierte un valor a número, manejando formato europeo (coma decimal)."""
-    if pd.isna(val) or val == '' or val is None:
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    
-    s = str(val).strip()
-    # Quitar símbolos de moneda y espacios
-    s = s.replace('€', '').replace('EUR', '').replace(' ', '')
-    
-    # Si tiene punto y coma, determinar cuál es decimal
-    if ',' in s and '.' in s:
-        # Formato europeo: 1.234,56 -> 1234.56
-        if s.rfind(',') > s.rfind('.'):
-            s = s.replace('.', '').replace(',', '.')
-        # Formato americano: 1,234.56 -> 1234.56
-        else:
-            s = s.replace(',', '')
-    elif ',' in s:
-        # Solo coma -> es decimal europeo: 379,67 -> 379.67
-        s = s.replace(',', '.')
-    
-    try:
-        return float(s)
-    except:
-        return 0.0
-
-
-# =========================
 # CONEXIÓN GOOGLE SHEETS
 # =========================
 @st.cache_resource
@@ -131,11 +99,11 @@ def load_movimientos():
         data = ws.get_all_records()
         df = pd.DataFrame(data)
         
-        # Convertir columnas numéricas
+        # Convertir columnas numéricas directamente
         numeric_cols = ['base', 'iva', 'irpf', 'total']
         for col in numeric_cols:
             if col in df.columns:
-                df[col] = df[col].apply(parse_number)
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         return df
     except Exception as e:
