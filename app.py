@@ -1,6 +1,6 @@
 """
 Facturas Bot - Panel de Control Personal
-Versión Final - Fix decimales
+Versión Final
 """
 import streamlit as st
 import gspread
@@ -16,8 +16,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
-
-DEBUG = True  # Cambiar a False cuando funcione
 
 # =========================
 # AUTENTICACIÓN
@@ -74,7 +72,6 @@ def to_number(val):
         return float(val)
     
     s = str(val).strip()
-    # Reemplazar coma por punto (formato europeo)
     s = s.replace(',', '.')
     
     try:
@@ -107,13 +104,13 @@ def get_gspread_client():
 
 @st.cache_data(ttl=300)
 def load_movimientos():
-    """Carga datos de movimientos usando get_all_values para preservar strings."""
+    """Carga datos de movimientos."""
     try:
         gc = get_gspread_client()
         sh = gc.open_by_key(SHEET_ID)
         ws = sh.worksheet("movimientos")
         
-        # Usar get_all_values() para obtener strings
+        # Usar get_all_values() para preservar strings con coma
         all_values = ws.get_all_values()
         
         if len(all_values) < 2:
@@ -122,29 +119,13 @@ def load_movimientos():
         headers = all_values[0]
         data_rows = all_values[1:]
         
-        # Crear DataFrame
         df = pd.DataFrame(data_rows, columns=headers)
         
-        if DEBUG:
-            st.write("### 🔍 DEBUG - Valores RAW (strings)")
-            st.write(f"Columnas: {list(df.columns)}")
-            if len(df) > 0:
-                st.write("**Primera fila - valores de base, iva, total:**")
-                st.write(f"- base: `{repr(df['base'].iloc[0])}`")
-                st.write(f"- iva: `{repr(df['iva'].iloc[0])}`")
-                st.write(f"- total: `{repr(df['total'].iloc[0])}`")
-        
-        # Convertir columnas numéricas (ahora son strings con coma)
+        # Convertir columnas numéricas (coma -> punto)
         numeric_cols = ['base', 'iva', 'irpf', 'total']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = df[col].apply(to_number)
-        
-        if DEBUG:
-            st.write("**Después de conversión:**")
-            st.write(f"- base: `{df['base'].iloc[0]}`")
-            st.write(f"- iva: `{df['iva'].iloc[0]}`")
-            st.write(f"- total: `{df['total'].iloc[0]}`")
         
         # Filtrar filas vacías
         df = df[df['tipo'].str.strip() != '']
@@ -152,8 +133,6 @@ def load_movimientos():
         return df
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
-        import traceback
-        st.code(traceback.format_exc())
         return pd.DataFrame()
 
 
