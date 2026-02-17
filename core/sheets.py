@@ -1,23 +1,17 @@
 # core/sheets.py
 """
-Operaciones con Google Sheets para PERSONAL.
-Versión optimizada con rate limiting.
+Operaciones con Google Sheets.
+Versión WEB - usa Streamlit secrets para credenciales.
 """
 import re
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config.settings import (
-    SERVICE_ACCOUNT_FILE, GOOGLE_SCOPES, SHEET_ID_PERSONAL,
-    WS_MOVIMIENTOS
-)
+from config.settings import SHEET_ID, WS_MOVIMIENTOS, GOOGLE_SCOPES
 
 
 # Rate limit: espera entre llamadas a la API
@@ -46,24 +40,37 @@ def _norm_filename(s: Any) -> str:
     return s
 
 
-# Cache para evitar reconexiones
-_gc_cache = None
-_gc_cache_time = 0
-_CACHE_TTL = 300  # 5 minutos
+def _fix_private_key(pk: str) -> str:
+    """Arregla el formato de la private_key si tiene espacios en vez de saltos de línea."""
+    match = re.search(r'-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----', pk, re.DOTALL)
+    if not match:
+        return pk
+    content = match.group(1)
+    content_clean = re.sub(r'\s+', '', content)
+    lines = [content_clean[i:i+64] for i in range(0, len(content_clean), 64)]
+    return "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n"
 
 
-def gspread_client():
-    """Obtiene cliente gspread con cache."""
-    global _gc_cache, _gc_cache_time
+@st.cache_resource
+def get_gspread_client():
+    """Obtiene cliente gspread usando Streamlit secrets."""
+    gcp_secrets = st.secrets["gcp_service_account"]
     
-    now = time.time()
-    if _gc_cache is not None and (now - _gc_cache_time) < _CACHE_TTL:
-        return _gc_cache
+    creds_dict = {
+        "type": gcp_secrets["type"],
+        "project_id": gcp_secrets["project_id"],
+        "private_key_id": gcp_secrets["private_key_id"],
+        "private_key": _fix_private_key(gcp_secrets["private_key"]),
+        "client_email": gcp_secrets["client_email"],
+        "client_id": gcp_secrets["client_id"],
+        "auth_uri": gcp_secrets["auth_uri"],
+        "token_uri": gcp_secrets["token_uri"],
+        "auth_provider_x509_cert_url": gcp_secrets["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": gcp_secrets["client_x509_cert_url"],
+    }
     
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=GOOGLE_SCOPES)
-    _gc_cache = gspread.authorize(creds)
-    _gc_cache_time = now
-    return _gc_cache
+    creds = Credentials.from_service_account_info(creds_dict, scopes=GOOGLE_SCOPES)
+    return gspread.authorize(creds)
 
 
 def get_header_map(ws) -> Dict[str, int]:
@@ -83,10 +90,7 @@ def _build_row_from_data(headers: List[str], data: Dict[str, Any]) -> List[Any]:
     return row
 
 
-# =========================
-# APPEND MOVIMIENTO - VERSIÓN SIMPLIFICADA
-# =========================
-def append_movimiento_with_dedupe(data: Dict[str, Any], scope: str = "personal") -> Tuple[str, Optional[int]]:
+def append_movimiento_with_dedupe(data: Dict[str, Any]) -> Tuple[str, Optional[int]]:
     """
     Inserta en 'movimientos' con dedupe básico.
     
@@ -94,8 +98,8 @@ def append_movimiento_with_dedupe(data: Dict[str, Any], scope: str = "personal")
         ("inserted", row_number) | ("duplicate", None) | ("error", None)
     """
     try:
-        gc = gspread_client()
-        sh = gc.open_by_key(SHEET_ID_PERSONAL)
+        gc = get_gspread_client()
+        sh = gc.open_by_key(SHEET_ID)
         ws = sh.worksheet(WS_MOVIMIENTOS)
         
         time.sleep(API_DELAY)
@@ -104,7 +108,6 @@ def append_movimiento_with_dedupe(data: Dict[str, Any], scope: str = "personal")
         all_data = ws.get_all_values()
         
         if not all_data:
-            print("ERROR: movimientos sin datos")
             return "error", None
         
         headers = all_data[0]
@@ -156,5 +159,5 @@ def append_movimiento_with_dedupe(data: Dict[str, Any], scope: str = "personal")
         return "inserted", row_idx
 
     except Exception as e:
-        print(f"ERROR: append_movimiento_with_dedupe: {e}")
+        st.error(f"Error en sheets: {e}")
         return "error", None

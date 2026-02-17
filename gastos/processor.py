@@ -1,18 +1,14 @@
 # gastos/processor.py
 """
-Procesador principal de gastos para PERSONAL.
-Sin gestión de proveedores.
+Procesador de gastos - versión WEB.
+Recibe bytes del archivo en vez de path.
 """
-import os
 from datetime import datetime
 from typing import Dict, Any
 
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from core.ocr import extract_text_any_with_mode
-from core.file_utils import move_to
+from core.ocr import extract_text_from_bytes
 from core.sheets import append_movimiento_with_dedupe
+from core.drive import upload_to_drive
 
 from .parser import (
     find_date_gasto,
@@ -26,24 +22,29 @@ from .parser import (
 from .rules import enforce_gastos_rules, determine_ambito, determine_iva_deducible
 
 
-def process_gasto(path: str, scope: str = "personal", subtipo: str = "factura") -> Dict[str, Any]:
+def process_gasto(
+    file_bytes: bytes, 
+    filename: str, 
+    subtipo: str = "factura"
+) -> Dict[str, Any]:
     """
     Procesa una factura o ticket de gasto.
     
     Args:
-        path: Ruta al archivo PDF/imagen
-        scope: Siempre "personal" en este proyecto
+        file_bytes: Contenido del archivo en bytes
+        filename: Nombre del archivo
         subtipo: "factura" o "ticket"
     
     Returns:
         {"status": "processed" | "duplicate" | "review" | "error", ...}
     """
     # 1. Extraer texto
-    text, mode = extract_text_any_with_mode(path)
+    text, mode = extract_text_from_bytes(file_bytes, filename)
     
     if not text or len(text.strip()) < 20:
-        move_to(path, ok=False)
-        return {"status": "review", "reason": "sin_texto_extraido"}
+        # Subir a REVIEW
+        upload_to_drive(file_bytes, filename, "review")
+        return {"status": "review", "reason": "sin_texto_extraido", "extraction_mode": mode}
     
     # 2. Parsear campos
     fecha = find_date_gasto(text)
@@ -56,7 +57,6 @@ def process_gasto(path: str, scope: str = "personal", subtipo: str = "factura") 
     
     # 3. Construir data
     now = datetime.now()
-    filename = os.path.basename(path)
     
     # Calcular año/trimestre
     anio_trimestre = ""
@@ -87,7 +87,7 @@ def process_gasto(path: str, scope: str = "personal", subtipo: str = "factura") 
         "total": total if total else "",
         "moneda": "EUR",
         "ambito": ambito,
-        "categoria": "",  # Sin gestión de categorías
+        "categoria": "",
         "archivo_drive": filename,
         "drive_file_id": "",
         "review_reason": "",
@@ -98,23 +98,29 @@ def process_gasto(path: str, scope: str = "personal", subtipo: str = "factura") 
     data = enforce_gastos_rules(data, subtipo)
     data["iva_deducible"] = determine_iva_deducible(data)
     
-    # 5. Si hay errores de validación, mover a review
+    # 5. Si hay errores de validación, subir a REVIEW
     if data.get("review_reason"):
-        move_to(path, ok=False)
+        file_id = upload_to_drive(file_bytes, filename, "review")
+        data["drive_file_id"] = file_id or ""
         return {"status": "review", "reason": data["review_reason"], "data": data}
     
     # 6. Insertar en Sheet (con dedupe)
-    status, row = append_movimiento_with_dedupe(data, scope)
+    status, row = append_movimiento_with_dedupe(data)
     
     if status == "duplicate":
-        move_to(path, ok=True, duplicate=True)
+        # Subir a DUPLICADOS
+        file_id = upload_to_drive(file_bytes, filename, "duplicados")
+        data["drive_file_id"] = file_id or ""
         return {"status": "duplicate", "data": data}
     
     if status == "error":
-        move_to(path, ok=False)
+        # Subir a REVIEW
+        file_id = upload_to_drive(file_bytes, filename, "review")
+        data["drive_file_id"] = file_id or ""
         return {"status": "error", "reason": "error_sheets", "data": data}
     
-    # 7. Mover a procesadas
-    move_to(path, ok=True)
+    # 7. Subir a PROCESADAS
+    file_id = upload_to_drive(file_bytes, filename, "procesadas")
+    data["drive_file_id"] = file_id or ""
     
     return {"status": "processed", "row": row, "data": data}

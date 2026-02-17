@@ -6,9 +6,6 @@ Funciones de extracción de cliente, CIF, número de factura, etc.
 import re
 from typing import Optional, List
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config.tax_ids import OWN_TAX_IDS
 from core.pdf_parser import normalize_amount, AMOUNT_RE
 from dateutil import parser as dateparser
@@ -142,58 +139,9 @@ def find_all_tax_ids(text: str) -> List[str]:
     return result
 
 
-def identify_emisor_and_cliente(text: str) -> dict:
-    """
-    Identifica el emisor y el cliente a partir de los CIFs en el texto.
-    
-    El emisor es el PRIMER CIF propio que aparece en el texto (generalmente arriba).
-    El cliente es el siguiente CIF diferente al emisor.
-    
-    Caso especial: En facturas personales, Julio puede facturar a DAZZLE AGENCY,
-    por lo que un CIF de empresa puede ser el cliente.
-    
-    Returns:
-        {
-            "emisor_tax_id": str o None,
-            "emisor_scope": "empresa" | "personal" | None,
-            "cliente_tax_id": str o None,
-            "all_tax_ids": list
-        }
-    """
-    from config.tax_ids import is_empresa_tax_id, is_personal_tax_id
-    
-    all_tids = find_all_tax_ids(text)
-    
-    result = {
-        "emisor_tax_id": None,
-        "emisor_scope": None,
-        "cliente_tax_id": None,
-        "all_tax_ids": all_tids,
-    }
-    
-    # Recorrer en orden de aparición
-    for tid in all_tids:
-        # Si aún no tenemos emisor, buscar el primer CIF propio
-        if result["emisor_tax_id"] is None:
-            if is_personal_tax_id(tid):
-                result["emisor_tax_id"] = tid
-                result["emisor_scope"] = "personal"
-            elif is_empresa_tax_id(tid):
-                result["emisor_tax_id"] = tid
-                result["emisor_scope"] = "empresa"
-        else:
-            # Ya tenemos emisor, el siguiente diferente es el cliente
-            if tid != result["emisor_tax_id"] and result["cliente_tax_id"] is None:
-                result["cliente_tax_id"] = tid
-    
-    return result
-
-
-def find_tax_id_near_counterparty(text: str, counterparty: Optional[str], scope: str = "empresa") -> Optional[str]:
+def find_tax_id_near_counterparty(text: str, counterparty: Optional[str], scope: str = "personal") -> Optional[str]:
     """
     Busca CIF/NIF/VAT del cliente (no del emisor).
-    
-    DEPRECATED: Usar identify_emisor_and_cliente() para obtener ambos.
     
     Args:
         scope: "empresa" excluye todos los OWN_TAX_IDS

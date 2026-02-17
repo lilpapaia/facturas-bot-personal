@@ -166,9 +166,9 @@ def classify_doc(text: str) -> str:
 # =========================
 # TICKET ID ESTABLE (para gastos sin nº factura)
 # =========================
-def build_stable_ticket_id(date_iso: Optional[str], total: Optional[float], vendor: str, source_file: str) -> str:
+def build_stable_ticket_id(date_iso: Optional[str], total: Optional[float], vendor: str, filename: str) -> str:
     """Genera un ID estable para tickets sin número de factura."""
-    base = f"{date_iso or ''}|{total or ''}|{vendor or ''}|{os.path.basename(source_file)}"
+    base = f"{date_iso or ''}|{total or ''}|{vendor or ''}|{filename}"
     h = hashlib.sha1(base.encode("utf-8")).hexdigest()[:10].upper()
     cents = int(round((total or 0) * 100))
     d = (date_iso or "0000-00-00").replace("-", "")

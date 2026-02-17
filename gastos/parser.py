@@ -1,15 +1,11 @@
 # gastos/parser.py
 """
-Parser para facturas de GASTOS - versión PERSONAL.
+Parser para facturas de GASTOS - versión WEB.
 Soporta facturas normales y recibos bancarios (autónomos, domiciliaciones).
 """
 import re
 import calendar
 from typing import Optional, List
-
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from core.pdf_parser import normalize_amount, AMOUNT_RE
 from dateutil import parser as dateparser
@@ -224,7 +220,6 @@ def find_date_gasto(text: str) -> Optional[str]:
                 mes = int(m.group(1))
                 anio = int(m.group(2))
                 # Último día del mes
-                import calendar
                 ultimo_dia = calendar.monthrange(anio, mes)[1]
                 return f"{anio}-{mes:02d}-{ultimo_dia:02d}"
             except:

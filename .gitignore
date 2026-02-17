@@ -1,15 +1,7 @@
-# Credenciales - NUNCA SUBIR
+# Secrets
 service_account.json
-facturas-bot-ocr-*.json
 *.json
 !package.json
-
-# State files
-.reporting_state.json
-
-# Backups locales
-EXCELS LOCAL/
-*.xlsx
 
 # Python
 __pycache__/
@@ -17,50 +9,20 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-.venv/
+.env
+.venv
 venv/
 ENV/
-env/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
-*~
 
-# Sistema
+# OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Logs
-*.log
-logs/
-
-# Temporal
-tmp/
-temp/
-*.tmp
-
-# Tests
-.pytest_cache/
-.coverage
-htmlcov/
+# Streamlit
+.streamlit/secrets.toml

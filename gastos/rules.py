@@ -5,10 +5,6 @@ Reglas de validación para gastos PERSONAL.
 import re
 from typing import Dict, Any
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
 from .rules_facturas import validate_factura
 from .rules_tickets import validate_ticket
 

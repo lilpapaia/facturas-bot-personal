@@ -1,31 +1,42 @@
 # core/ocr.py
 """
 OCR con Google Vision y extracción de texto de PDFs.
+Versión WEB - usa Streamlit secrets para credenciales.
 """
-import os
+import io
 import re
 from typing import Tuple
-import warnings
 
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
+import streamlit as st
 from google.cloud import vision
+from google.oauth2.service_account import Credentials
 
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config.settings import LANG_HINTS
+from config.settings import LANG_HINTS, GOOGLE_SCOPES
 
 
-def ensure_adc(service_account_path: str):
-    """Configura las credenciales de Google Cloud."""
-    if service_account_path and os.path.exists(service_account_path):
-        os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", service_account_path)
+def get_vision_client():
+    """Obtiene cliente de Vision API usando Streamlit secrets."""
+    gcp_secrets = st.secrets["gcp_service_account"]
+    
+    # Arreglar private_key si tiene formato incorrecto
+    creds_dict = dict(gcp_secrets)
+    if "private_key" in creds_dict:
+        pk = creds_dict["private_key"]
+        # Reconstruir si tiene espacios en vez de saltos de línea
+        match = re.search(r'-----BEGIN PRIVATE KEY-----(.*?)-----END PRIVATE KEY-----', pk, re.DOTALL)
+        if match:
+            content = match.group(1)
+            content_clean = re.sub(r'\s+', '', content)
+            lines = [content_clean[i:i+64] for i in range(0, len(content_clean), 64)]
+            creds_dict["private_key"] = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----\n"
+    
+    creds = Credentials.from_service_account_info(creds_dict, scopes=GOOGLE_SCOPES)
+    return vision.ImageAnnotatorClient(credentials=creds)
 
 
 def ocr_image_bytes(content: bytes) -> str:
     """Ejecuta OCR en bytes de imagen usando Google Vision."""
-    client = vision.ImageAnnotatorClient()
+    client = get_vision_client()
     image = vision.Image(content=content)
     ctx = vision.ImageContext(language_hints=LANG_HINTS)
     resp = client.document_text_detection(image=image, image_context=ctx)
@@ -34,9 +45,13 @@ def ocr_image_bytes(content: bytes) -> str:
     return resp.full_text_annotation.text or ""
 
 
-def extract_text_any_with_mode(path: str) -> Tuple[str, str]:
+def extract_text_from_bytes(file_bytes: bytes, filename: str) -> Tuple[str, str]:
     """
-    Extrae texto de un archivo (PDF o imagen).
+    Extrae texto de bytes de archivo (PDF o imagen).
+    
+    Args:
+        file_bytes: Contenido del archivo en bytes
+        filename: Nombre del archivo (para detectar extensión)
     
     Returns:
         (text, mode) donde mode es:
@@ -45,23 +60,23 @@ def extract_text_any_with_mode(path: str) -> Tuple[str, str]:
         - "image_ocr": Imagen (se usó OCR)
         - "none": No se pudo extraer
     """
-    ext = os.path.splitext(path)[1].lower()
-
+    ext = filename.lower().split('.')[-1] if '.' in filename else ''
+    
     # IMÁGENES -> OCR directo
-    if ext in [".jpg", ".jpeg", ".png"]:
+    if ext in ["jpg", "jpeg", "png"]:
         try:
-            with open(path, "rb") as f:
-                return ocr_image_bytes(f.read()), "image_ocr"
-        except Exception:
+            return ocr_image_bytes(file_bytes), "image_ocr"
+        except Exception as e:
+            st.error(f"Error en OCR de imagen: {e}")
             return "", "none"
 
     # PDFs
-    if ext == ".pdf":
-        # 1) Intentar texto embebido con pdfplumber
+    if ext == "pdf":
+        # 1) Intentar texto embebido con pdfplumber (GRATIS)
         try:
             import pdfplumber
             parts = []
-            with pdfplumber.open(path) as pdf:
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
                 for page in pdf.pages:
                     txt = page.extract_text() or ""
                     if not txt.strip():
@@ -92,15 +107,17 @@ def extract_text_any_with_mode(path: str) -> Tuple[str, str]:
         # 2) PDF escaneado -> renderizar con PyMuPDF y OCR
         try:
             import fitz  # pymupdf
-            doc = fitz.open(path)
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
             texts = []
             for i in range(min(len(doc), 5)):  # Máximo 5 páginas
                 page = doc.load_page(i)
                 pix = page.get_pixmap(dpi=200)
                 texts.append(ocr_image_bytes(pix.tobytes("png")))
+            doc.close()
             out = "\n".join(t for t in texts if t.strip()).strip()
             return out, "pdf_ocr"
-        except Exception:
+        except Exception as e:
+            st.error(f"Error procesando PDF: {e}")
             return "", "none"
 
     return "", "none"
