@@ -65,6 +65,28 @@ def fix_private_key(pk):
 
 
 # =========================
+# CONVERTIR NÚMERO (coma europea → punto)
+# =========================
+def to_number(val):
+    """Convierte valor a número. Maneja coma decimal europea."""
+    if val is None or val == '':
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    
+    # Es un string
+    s = str(val).strip()
+    
+    # Reemplazar coma por punto (formato europeo)
+    s = s.replace(',', '.')
+    
+    try:
+        return float(s)
+    except:
+        return 0.0
+
+
+# =========================
 # CONEXIÓN GOOGLE SHEETS
 # =========================
 @st.cache_resource
@@ -99,11 +121,11 @@ def load_movimientos():
         data = ws.get_all_records()
         df = pd.DataFrame(data)
         
-        # Convertir columnas numéricas directamente
+        # Convertir columnas numéricas (coma → punto)
         numeric_cols = ['base', 'iva', 'irpf', 'total']
         for col in numeric_cols:
             if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                df[col] = df[col].apply(to_number)
         
         return df
     except Exception as e:
