@@ -151,10 +151,144 @@ def load_movimientos():
 
 
 # =========================
-# SYNC - Actualiza registros y clientes
+# SYNC - Actualiza registros y clientes (COMPLETO con formato)
 # =========================
+
+# Colores para formato
+COLOR_YEAR_BG = "#8B0000"     # rojo oscuro
+COLOR_Q_BG    = "#0B3D2E"     # verde oscuro
+COLOR_HDR_BG  = "#1F4E79"     # azul
+COLOR_WHITE   = "#FFFFFF"
+
+# Columnas en REGISTRO
+REG_COLUMNS = [
+    "fecha", "tipo", "proveedor_cliente", "tax_id", "numero_factura",
+    "base", "iva", "irpf", "total", "moneda", "ambito", "archivo_drive",
+    "procesado_el", "anio_trimestre",
+]
+
+def hex_to_rgb01(hex_color: str) -> dict:
+    hex_color = hex_color.lstrip("#")
+    r = int(hex_color[0:2], 16) / 255.0
+    g = int(hex_color[2:4], 16) / 255.0
+    b = int(hex_color[4:6], 16) / 255.0
+    return {"red": r, "green": g, "blue": b}
+
+def fmt_request(sheet_id: int, r0: int, r1: int, c0: int, c1: int,
+                bg: str, fg: str, bold: bool = True, center: bool = False):
+    req = {
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": r0,
+                "endRowIndex": r1,
+                "startColumnIndex": c0,
+                "endColumnIndex": c1,
+            },
+            "cell": {
+                "userEnteredFormat": {
+                    "backgroundColor": hex_to_rgb01(bg),
+                    "textFormat": {"foregroundColor": hex_to_rgb01(fg), "bold": bold},
+                }
+            },
+            "fields": "userEnteredFormat(backgroundColor,textFormat)",
+        }
+    }
+    if center:
+        req["repeatCell"]["cell"]["userEnteredFormat"]["horizontalAlignment"] = "CENTER"
+        req["repeatCell"]["fields"] += ",userEnteredFormat(horizontalAlignment)"
+    return req
+
+def reset_format_request(sheet_id: int, rows: int, cols: int):
+    return {
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": 0,
+                "endRowIndex": rows,
+                "startColumnIndex": 0,
+                "endColumnIndex": cols,
+            },
+            "cell": {
+                "userEnteredFormat": {
+                    "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+                    "textFormat": {"foregroundColor": {"red": 0, "green": 0, "blue": 0}, "bold": False},
+                }
+            },
+            "fields": "userEnteredFormat(backgroundColor,textFormat)",
+        }
+    }
+
+def build_registro_rows_and_formats(movs: list, year: int, tipo_filter: str, title: str):
+    """Construye filas con estructura Q1-Q4 y retorna posiciones para formato."""
+    BLANK_LINES = 5
+    
+    # Agrupar por trimestre
+    by_q = {1: [], 2: [], 3: [], 4: []}
+    for m in movs:
+        anio_trim = m.get("anio_trimestre", "")
+        if not anio_trim.startswith(str(year)):
+            continue
+        tipo = m.get("tipo", "").lower()
+        if tipo_filter and tipo != tipo_filter.lower():
+            continue
+        try:
+            q = int(anio_trim.split("-Q")[1])
+            if q in by_q:
+                by_q[q].append(m)
+        except:
+            pass
+    
+    width = len(REG_COLUMNS)
+    rows = []
+    fmt = {"year_rows": [], "q_rows": [], "hdr_rows": []}
+    
+    # Cabecera
+    rows.append([title] + [""] * (width - 1))
+    rows.append([f"Año activo: {year}"] + [""] * (width - 1))
+    rows.append([f"Actualizado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"] + [""] * (width - 1))
+    rows.append([""] * width)
+    
+    current_row = 5  # 1-indexed para formato
+    
+    # Fila del año
+    rows.append([str(year)] + [""] * (width - 1))
+    fmt["year_rows"].append(current_row)
+    current_row += 1
+    rows.append([""] * width)
+    current_row += 1
+    
+    # Por cada trimestre
+    for q in [1, 2, 3, 4]:
+        # Fila trimestre
+        rows.append([f"{year} - Q{q}"] + [""] * (width - 1))
+        fmt["q_rows"].append(current_row)
+        current_row += 1
+        
+        # Headers
+        rows.append(REG_COLUMNS)
+        fmt["hdr_rows"].append(current_row)
+        current_row += 1
+        
+        # Datos del trimestre
+        items = sorted(by_q[q], key=lambda m: (m.get("fecha", ""), m.get("numero_factura", "")))
+        if items:
+            for m in items:
+                rows.append([m.get(c, "") for c in REG_COLUMNS])
+                current_row += 1
+        else:
+            rows.append([""] * width)
+            current_row += 1
+        
+        # Líneas en blanco
+        for _ in range(BLANK_LINES):
+            rows.append([""] * width)
+            current_row += 1
+    
+    return rows, fmt
+
 def run_sync(year: int):
-    """Ejecuta sincronización de registros."""
+    """Ejecuta sincronización completa con formato."""
     import gspread
     
     gc = get_gspread_client()
@@ -168,9 +302,6 @@ def run_sync(year: int):
         return "No hay datos para sincronizar"
     
     headers = all_values[0]
-    data_rows = all_values[1:]
-    
-    # Construir registros
     hm = {h.strip(): i for i, h in enumerate(headers) if h and str(h).strip()}
     
     def get_val(row, key):
@@ -179,82 +310,54 @@ def run_sync(year: int):
             return ""
         return row[idx].strip()
     
-    ingresos = []
-    gastos = []
-    clientes_data = {}
-    
-    for row in data_rows:
-        tipo = get_val(row, "tipo").lower()
+    # Construir lista de movimientos como dicts
+    movs = []
+    for row in all_values[1:]:
+        fecha = get_val(row, "fecha")
         anio_trim = get_val(row, "anio_trimestre")
-        
-        if not anio_trim.startswith(str(year)):
+        if not fecha and not anio_trim:
             continue
+        m = {h: get_val(row, h) for h in hm.keys()}
         
-        if tipo == "ingreso":
-            ingresos.append(row)
-            # Actualizar clientes
-            cliente = get_val(row, "proveedor_cliente")
-            if cliente:
-                if cliente not in clientes_data:
-                    clientes_data[cliente] = {
-                        "tax_id": get_val(row, "tax_id"),
-                        "count": 0,
-                        "total": 0.0
-                    }
-                clientes_data[cliente]["count"] += 1
-                try:
-                    clientes_data[cliente]["total"] += float(get_val(row, "total").replace(",", ".") or 0)
-                except:
-                    pass
-        elif tipo == "gasto":
-            gastos.append(row)
+        # Calcular anio_trimestre si no existe
+        if fecha and not anio_trim:
+            try:
+                y = int(fecha[:4])
+                mes = int(fecha[5:7])
+                q = (mes - 1) // 3 + 1
+                m["anio_trimestre"] = f"{y}-Q{q}"
+            except:
+                pass
+        movs.append(m)
     
     results = []
+    registro_written = []
     
-    # Actualizar registro_ingresos
-    try:
-        ws_ing = sh.worksheet("registro_ingresos")
-        # Cabecera
-        reg_headers = ["fecha", "tipo", "proveedor_cliente", "tax_id", "numero_factura", 
-                       "base", "iva", "irpf", "total", "moneda", "ambito", "archivo_drive"]
-        
-        reg_rows = [["REGISTRO INGRESOS (auto)"], [f"Año: {year}"], [f"Actualizado: {datetime.now().strftime('%Y-%m-%d %H:%M')}"], [""]]
-        reg_rows.append(reg_headers)
-        
-        for row in ingresos:
-            reg_rows.append([get_val(row, h) for h in reg_headers])
-        
-        ws_ing.clear()
-        ws_ing.update(range_name="A1", values=reg_rows, value_input_option="USER_ENTERED")
-        results.append(f"✅ registro_ingresos: {len(ingresos)} filas")
-        time.sleep(1)
-    except Exception as e:
-        results.append(f"⚠️ registro_ingresos: {e}")
+    time.sleep(1)
     
-    # Actualizar registro_gastos
-    try:
-        ws_gas = sh.worksheet("registro_gastos")
-        reg_headers = ["fecha", "tipo", "proveedor_cliente", "tax_id", "numero_factura", 
-                       "base", "iva", "total", "moneda", "ambito", "archivo_drive"]
-        
-        reg_rows = [["REGISTRO GASTOS (auto)"], [f"Año: {year}"], [f"Actualizado: {datetime.now().strftime('%Y-%m-%d %H:%M')}"], [""]]
-        reg_rows.append(reg_headers)
-        
-        for row in gastos:
-            reg_rows.append([get_val(row, h) for h in reg_headers])
-        
-        ws_gas.clear()
-        ws_gas.update(range_name="A1", values=reg_rows, value_input_option="USER_ENTERED")
-        results.append(f"✅ registro_gastos: {len(gastos)} filas")
-        time.sleep(1)
-    except Exception as e:
-        results.append(f"⚠️ registro_gastos: {e}")
-    
-    # Actualizar clientes
+    # CLIENTES
     try:
         ws_cli = sh.worksheet("clientes")
-        cli_rows = [["cliente", "tax_id", "n_facturas", "total_facturado"]]
         
+        # Calcular clientes desde ingresos
+        clientes_data = {}
+        for m in movs:
+            if m.get("tipo", "").lower() != "ingreso":
+                continue
+            if not m.get("anio_trimestre", "").startswith(str(year)):
+                continue
+            cliente = m.get("proveedor_cliente", "").strip()
+            if not cliente:
+                continue
+            if cliente not in clientes_data:
+                clientes_data[cliente] = {"tax_id": m.get("tax_id", ""), "count": 0, "total": 0.0}
+            clientes_data[cliente]["count"] += 1
+            try:
+                clientes_data[cliente]["total"] += float(m.get("total", "0").replace(",", ".") or 0)
+            except:
+                pass
+        
+        cli_rows = [["cliente", "tax_id", "n_facturas", "total_facturado"]]
         for cli, data in sorted(clientes_data.items()):
             cli_rows.append([cli, data["tax_id"], data["count"], round(data["total"], 2)])
         
@@ -265,13 +368,85 @@ def run_sync(year: int):
     except Exception as e:
         results.append(f"⚠️ clientes: {e}")
     
-    # Actualizar config con el año
+    # REGISTRO INGRESOS
+    try:
+        ws_ing = sh.worksheet("registro_ingresos")
+        ws_ing.clear()
+        rows_ing, fmt_ing = build_registro_rows_and_formats(movs, year, "ingreso", "REGISTRO INGRESOS (auto)")
+        ws_ing.update(range_name="A1", values=rows_ing, value_input_option="USER_ENTERED")
+        registro_written.append((ws_ing, fmt_ing))
+        results.append(f"✅ registro_ingresos: {len([m for m in movs if m.get('tipo','').lower()=='ingreso' and m.get('anio_trimestre','').startswith(str(year))])} filas")
+        time.sleep(1)
+    except Exception as e:
+        results.append(f"⚠️ registro_ingresos: {e}")
+    
+    # REGISTRO GASTOS
+    try:
+        ws_gas = sh.worksheet("registro_gastos")
+        ws_gas.clear()
+        rows_gas, fmt_gas = build_registro_rows_and_formats(movs, year, "gasto", "REGISTRO GASTOS (auto)")
+        ws_gas.update(range_name="A1", values=rows_gas, value_input_option="USER_ENTERED")
+        registro_written.append((ws_gas, fmt_gas))
+        results.append(f"✅ registro_gastos: {len([m for m in movs if m.get('tipo','').lower()=='gasto' and m.get('anio_trimestre','').startswith(str(year))])} filas")
+        time.sleep(1)
+    except Exception as e:
+        results.append(f"⚠️ registro_gastos: {e}")
+    
+    # CONFIG - Actualizar año
     try:
         ws_cfg = sh.worksheet("config")
         ws_cfg.update(range_name="B2", values=[[year]], value_input_option="USER_ENTERED")
         results.append(f"✅ config: año {year}")
+        time.sleep(1)
     except Exception as e:
         results.append(f"⚠️ config: {e}")
+    
+    # FORMATO (colores)
+    requests = []
+    
+    # Header movimientos
+    try:
+        mov_sheet_id = ws_mov.id
+        n_mov_cols = len(headers)
+        requests.append(fmt_request(mov_sheet_id, 0, 1, 0, n_mov_cols, COLOR_HDR_BG, COLOR_WHITE, bold=True, center=True))
+    except:
+        pass
+    
+    # Header clientes
+    try:
+        ws_cli = sh.worksheet("clientes")
+        cli_sheet_id = ws_cli.id
+        requests.append(fmt_request(cli_sheet_id, 0, 1, 0, 4, COLOR_HDR_BG, COLOR_WHITE, bold=True, center=True))
+    except:
+        pass
+    
+    # Registros (ingresos y gastos)
+    for ws, fmt in registro_written:
+        reg_sheet_id = ws.id
+        width = len(REG_COLUMNS)
+        
+        # Reset formato
+        requests.append(reset_format_request(reg_sheet_id, rows=200, cols=width))
+        
+        # Año (rojo)
+        for r in fmt["year_rows"]:
+            requests.append(fmt_request(reg_sheet_id, r - 1, r, 0, width, COLOR_YEAR_BG, COLOR_WHITE, bold=True))
+        
+        # Trimestres (verde)
+        for r in fmt["q_rows"]:
+            requests.append(fmt_request(reg_sheet_id, r - 1, r, 0, width, COLOR_Q_BG, COLOR_WHITE, bold=True))
+        
+        # Headers (azul)
+        for r in fmt["hdr_rows"]:
+            requests.append(fmt_request(reg_sheet_id, r - 1, r, 0, width, COLOR_HDR_BG, COLOR_WHITE, bold=True, center=True))
+    
+    # Aplicar formato
+    if requests:
+        try:
+            sh.batch_update({"requests": requests})
+            results.append("✅ Formato aplicado")
+        except Exception as e:
+            results.append(f"⚠️ Formato: {e}")
     
     return "\n".join(results)
 
