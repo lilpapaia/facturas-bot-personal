@@ -1,0 +1,16 @@
+# Streamlit
+streamlit>=1.30.0
+
+# Google APIs
+gspread>=5.12.0
+google-auth>=2.25.0
+google-cloud-vision>=3.4.0
+google-api-python-client>=2.100.0
+
+# PDF processing
+pdfplumber>=0.10.0
+pymupdf>=1.23.0
+
+# Data
+pandas>=2.0.0
+python-dateutil>=2.8.0
