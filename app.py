@@ -143,7 +143,7 @@ def generate_invoice_pdf(
     pdf.cell(0, 5, "Swift: CAIXESBBXXX", ln=True)
     
     # Retornar bytes
-    return pdf.output()
+    return bytes(pdf.output())
 
 
 def get_next_invoice_number(year: int, existing_numbers: list) -> str:
