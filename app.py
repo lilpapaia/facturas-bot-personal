@@ -10,7 +10,7 @@ import hashlib
 import io
 from datetime import datetime, date
 
-from config.settings import SHEET_ID, WS_MOVIMIENTOS, GOOGLE_SCOPES, SUPPORTED_EXTENSIONS, FOLDER_EMITIDAS
+from config.settings import SHEET_ID, WS_MOVIMIENTOS, WS_BORRADOR, GOOGLE_SCOPES, SUPPORTED_EXTENSIONS, FOLDER_EMITIDAS
 
 
 # =========================
@@ -299,6 +299,134 @@ def load_movimientos():
     except Exception as e:
         st.error(f"Error cargando datos: {e}")
         return pd.DataFrame()
+
+
+def load_borrador():
+    """Carga datos de borrador_emitidas."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open_by_key(SHEET_ID)
+        ws = sh.worksheet(WS_BORRADOR)
+        
+        all_values = ws.get_all_values()
+        
+        if len(all_values) < 2:
+            return pd.DataFrame(), []
+        
+        headers = all_values[0]
+        data_rows = all_values[1:]
+        
+        df = pd.DataFrame(data_rows, columns=headers)
+        
+        # Filtrar filas vacías
+        if 'numero_factura' in df.columns:
+            df = df[df['numero_factura'].str.strip() != '']
+        
+        return df, headers
+    except Exception as e:
+        st.error(f"Error cargando borrador: {e}")
+        return pd.DataFrame(), []
+
+
+def save_to_borrador(data: dict):
+    """Guarda una factura en borrador_emitidas."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open_by_key(SHEET_ID)
+        ws = sh.worksheet(WS_BORRADOR)
+        
+        # Obtener headers
+        headers = ws.row_values(1)
+        
+        # Si no hay headers, crearlos (mismos que movimientos)
+        if not headers or headers[0] == '':
+            ws_mov = sh.worksheet(WS_MOVIMIENTOS)
+            headers = ws_mov.row_values(1)
+            ws.update('A1', [headers])
+            time.sleep(1)
+        
+        # Construir fila
+        row = []
+        for h in headers:
+            row.append(data.get(h, ""))
+        
+        # Añadir al final
+        ws.append_row(row, value_input_option="USER_ENTERED")
+        return True
+    except Exception as e:
+        st.error(f"Error guardando en borrador: {e}")
+        return False
+
+
+def move_borrador_to_movimientos(numero_factura: str):
+    """Mueve una factura de borrador_emitidas a movimientos."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open_by_key(SHEET_ID)
+        ws_borrador = sh.worksheet(WS_BORRADOR)
+        ws_mov = sh.worksheet(WS_MOVIMIENTOS)
+        
+        # Leer borrador
+        all_values = ws_borrador.get_all_values()
+        if len(all_values) < 2:
+            return False, "Borrador vacío"
+        
+        headers = all_values[0]
+        num_col = headers.index("numero_factura") if "numero_factura" in headers else -1
+        
+        if num_col == -1:
+            return False, "Columna numero_factura no encontrada"
+        
+        # Buscar la fila
+        row_idx = None
+        row_data = None
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) > num_col and row[num_col].strip().upper() == numero_factura.strip().upper():
+                row_idx = i
+                row_data = row
+                break
+        
+        if row_idx is None:
+            return False, "Factura no encontrada en borrador"
+        
+        # Añadir a movimientos
+        ws_mov.append_row(row_data, value_input_option="USER_ENTERED")
+        time.sleep(1)
+        
+        # Borrar de borrador
+        ws_borrador.delete_rows(row_idx)
+        
+        return True, "OK"
+    except Exception as e:
+        return False, str(e)
+
+
+def delete_from_borrador(numero_factura: str):
+    """Elimina una factura del borrador sin moverla."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open_by_key(SHEET_ID)
+        ws_borrador = sh.worksheet(WS_BORRADOR)
+        
+        all_values = ws_borrador.get_all_values()
+        if len(all_values) < 2:
+            return False
+        
+        headers = all_values[0]
+        num_col = headers.index("numero_factura") if "numero_factura" in headers else -1
+        
+        if num_col == -1:
+            return False
+        
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) > num_col and row[num_col].strip().upper() == numero_factura.strip().upper():
+                ws_borrador.delete_rows(i)
+                return True
+        
+        return False
+    except Exception as e:
+        st.error(f"Error eliminando de borrador: {e}")
+        return False
 
 
 # =========================
@@ -1012,128 +1140,164 @@ def main():
                             iva_percent=iva_percent,
                         )
                         
-                        # Subir a EMITIDAS
-                        from core.drive import upload_to_drive
                         filename = f"{numero_factura}.pdf"
-                        file_id = upload_to_drive(pdf_bytes, filename, "emitidas")
                         
-                        if file_id:
-                            st.success(f"✅ Factura {numero_factura} generada y guardada en EMITIDAS")
+                        # Calcular año/trimestre
+                        fecha_str = fecha_factura.strftime("%Y-%m-%d")
+                        y = fecha_factura.year
+                        m = fecha_factura.month
+                        q = (m - 1) // 3 + 1
+                        anio_trimestre = f"{y}-Q{q}"
+                        
+                        # Construir descripción concatenada
+                        descripcion = "; ".join([c["descripcion"] for c in conceptos_validos])
+                        
+                        # Guardar en borrador_emitidas
+                        data_borrador = {
+                            "procesado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "anio_trimestre": anio_trimestre,
+                            "fecha": fecha_str,
+                            "tipo": "ingreso",
+                            "subtipo": "factura",
+                            "proveedor_cliente": cliente_nombre,
+                            "tax_id": cliente_cif or "",
+                            "numero_factura": numero_factura,
+                            "base": total_subtotal,
+                            "iva": iva_amount,
+                            "irpf": irpf_amount,
+                            "total": total_final,
+                            "moneda": "EUR",
+                            "ambito": "NACIONAL" if (cliente_cif or "").startswith(("A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "U", "V", "W")) else "COMUNITARIO",
+                            "categoria": descripcion[:100],
+                            "archivo_drive": filename,
+                            "drive_file_id": "",
+                            "review_reason": "",
+                            "extraction_mode": "generado",
+                            "iva_deducible": "",
+                        }
+                        
+                        saved = save_to_borrador(data_borrador)
+                        
+                        if saved:
+                            st.success(f"✅ Factura {numero_factura} creada y guardada en Pendientes")
                             
-                            # Mostrar botones de descarga
+                            # Botón de descarga
                             st.download_button(
                                 "📥 Descargar PDF",
                                 data=pdf_bytes,
                                 file_name=filename,
-                                mime="application/pdf"
+                                mime="application/pdf",
+                                type="primary"
                             )
+                            
+                            st.info("💡 Ve a la pestaña **⏳ Pendientes** para confirmar y registrar en movimientos")
                             
                             # Limpiar formulario
                             st.session_state.conceptos = [{"descripcion": "", "unidades": 1, "precio": 0.0}]
                         else:
-                            st.error("Error guardando en Drive")
+                            st.error("Error guardando en borrador")
+                            # Aun así permitir descarga
+                            st.download_button(
+                                "📥 Descargar PDF (sin guardar)",
+                                data=pdf_bytes,
+                                file_name=filename,
+                                mime="application/pdf"
+                            )
                     
                     except Exception as e:
                         st.error(f"Error generando factura: {e}")
     
     # TAB 5: Pendientes
     with tab5:
-        st.subheader("⏳ Facturas Pendientes de Procesar")
+        st.subheader("⏳ Facturas Pendientes de Confirmar")
         
         st.markdown("""
-        Facturas en **EMITIDAS** que aún no están registradas en el Sheet.
-        Selecciona las que quieras procesar.
+        Facturas creadas que aún no están registradas en movimientos.
+        Revisa que estén correctas y confírmalas.
         """)
         
-        # Obtener archivos en EMITIDAS
-        from core.drive import list_files_in_folder
+        # Cargar borrador
+        df_borrador, headers_borrador = load_borrador()
         
-        with st.spinner("Cargando archivos de EMITIDAS..."):
-            emitidas_files = list_files_in_folder("emitidas")
-        
-        # Obtener archivos ya procesados (en Sheet)
-        archivos_en_sheet = set()
-        if not df.empty and 'archivo_drive' in df.columns:
-            archivos_en_sheet = set(df['archivo_drive'].dropna().str.lower().tolist())
-        
-        # Filtrar pendientes
-        pendientes = []
-        for f in emitidas_files:
-            nombre = f.get("name", "")
-            if nombre.lower() not in archivos_en_sheet and nombre.lower().endswith(".pdf"):
-                pendientes.append(f)
-        
-        if not pendientes:
-            st.info("✅ No hay facturas pendientes. Todas las de EMITIDAS ya están procesadas.")
+        if df_borrador.empty:
+            st.success("✅ No hay facturas pendientes. Todas están confirmadas.")
         else:
-            st.write(f"**{len(pendientes)} factura(s) pendiente(s)**")
+            st.warning(f"**{len(df_borrador)} factura(s) pendiente(s) de confirmar**")
             
-            # Mostrar lista con checkboxes
-            seleccionados = []
+            # Mostrar tabla resumen
+            cols_mostrar = ['numero_factura', 'fecha', 'proveedor_cliente', 'total']
+            cols_exist = [c for c in cols_mostrar if c in df_borrador.columns]
             
-            for f in pendientes:
-                nombre = f.get("name", "")
-                fecha_creacion = f.get("createdTime", "")[:10] if f.get("createdTime") else ""
-                
-                col1, col2, col3 = st.columns([0.5, 3, 2])
-                with col1:
-                    checked = st.checkbox("", key=f"check_{f['id']}")
-                    if checked:
-                        seleccionados.append(f)
-                with col2:
-                    st.write(f"📄 **{nombre}**")
-                with col3:
-                    st.write(f"Creado: {fecha_creacion}")
+            if cols_exist:
+                st.dataframe(
+                    df_borrador[cols_exist],
+                    use_container_width=True,
+                    hide_index=True
+                )
             
             st.divider()
             
-            if seleccionados:
-                st.write(f"**{len(seleccionados)} seleccionada(s)**")
-                
-                if st.button("🚀 Procesar Seleccionadas", type="primary"):
-                    from ingresos.processor import process_ingreso
-                    from core.drive import get_drive_service
-                    from googleapiclient.http import MediaIoBaseDownload
-                    import io as io_module
-                    
+            # Selección para confirmar
+            st.markdown("### Confirmar facturas")
+            
+            numeros_pendientes = df_borrador['numero_factura'].tolist() if 'numero_factura' in df_borrador.columns else []
+            
+            seleccionados = st.multiselect(
+                "Selecciona las facturas a confirmar:",
+                options=numeros_pendientes,
+                default=[]
+            )
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if seleccionados and st.button("✅ Confirmar seleccionadas", type="primary"):
                     progress = st.progress(0)
-                    results = []
+                    resultados = []
                     
-                    for i, f in enumerate(seleccionados):
-                        try:
-                            # Descargar archivo
-                            service = get_drive_service()
-                            request = service.files().get_media(fileId=f['id'])
-                            fh = io_module.BytesIO()
-                            downloader = MediaIoBaseDownload(fh, request)
-                            done = False
-                            while not done:
-                                _, done = downloader.next_chunk()
-                            file_bytes = fh.getvalue()
-                            
-                            # Procesar
-                            result = process_ingreso(file_bytes, f['name'])
-                            results.append({"name": f['name'], "status": result.get("status"), "reason": result.get("reason", "")})
-                        
-                        except Exception as e:
-                            results.append({"name": f['name'], "status": "error", "reason": str(e)})
-                        
+                    for i, num in enumerate(seleccionados):
+                        ok, msg = move_borrador_to_movimientos(num)
+                        resultados.append({"numero": num, "ok": ok, "msg": msg})
                         progress.progress((i + 1) / len(seleccionados))
+                        time.sleep(0.5)
                     
                     # Mostrar resultados
-                    st.success("Procesamiento completado")
-                    
-                    for r in results:
-                        if r["status"] == "processed":
-                            st.write(f"✅ {r['name']}")
-                        elif r["status"] == "duplicate":
-                            st.write(f"⚠️ {r['name']} (duplicado)")
+                    for r in resultados:
+                        if r["ok"]:
+                            st.success(f"✅ {r['numero']} → Registrada en movimientos")
                         else:
-                            st.write(f"❌ {r['name']}: {r['reason']}")
+                            st.error(f"❌ {r['numero']}: {r['msg']}")
                     
                     # Limpiar caché
                     load_movimientos.clear()
-                    st.button("🔄 Refrescar", on_click=lambda: st.rerun())
+                    st.info("Recarga la página para ver los cambios")
+            
+            with col2:
+                if seleccionados and st.button("🗑️ Eliminar seleccionadas", type="secondary"):
+                    for num in seleccionados:
+                        delete_from_borrador(num)
+                    st.warning(f"Eliminadas {len(seleccionados)} factura(s) del borrador")
+                    st.info("Recarga la página para ver los cambios")
+            
+            st.divider()
+            
+            # Detalle de factura seleccionada
+            if len(seleccionados) == 1:
+                st.markdown("### Detalle")
+                factura = df_borrador[df_borrador['numero_factura'] == seleccionados[0]]
+                if not factura.empty:
+                    row = factura.iloc[0]
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Número:** {row.get('numero_factura', '')}")
+                        st.write(f"**Fecha:** {row.get('fecha', '')}")
+                        st.write(f"**Cliente:** {row.get('proveedor_cliente', '')}")
+                        st.write(f"**CIF:** {row.get('tax_id', '')}")
+                    with col2:
+                        st.write(f"**Base:** {row.get('base', '')} €")
+                        st.write(f"**IVA:** {row.get('iva', '')} €")
+                        st.write(f"**IRPF:** {row.get('irpf', '')} €")
+                        st.write(f"**Total:** {row.get('total', '')} €")
     
     # TAB 6: Config
     with tab6:

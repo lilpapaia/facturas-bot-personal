@@ -8,7 +8,6 @@ from typing import Dict, Any
 
 from core.ocr import extract_text_from_bytes
 from core.sheets import append_movimiento_with_dedupe
-from core.drive import upload_to_drive
 
 from .parser import (
     find_date_gasto,
@@ -29,21 +28,13 @@ def process_gasto(
 ) -> Dict[str, Any]:
     """
     Procesa una factura o ticket de gasto.
-    
-    Args:
-        file_bytes: Contenido del archivo en bytes
-        filename: Nombre del archivo
-        subtipo: "factura" o "ticket"
-    
-    Returns:
-        {"status": "processed" | "duplicate" | "review" | "error", ...}
+    SIN subir a Drive (no funciona con cuentas Gmail personales).
+    Solo guarda en Sheet.
     """
     # 1. Extraer texto
     text, mode = extract_text_from_bytes(file_bytes, filename)
     
     if not text or len(text.strip()) < 20:
-        # Subir a REVIEW
-        upload_to_drive(file_bytes, filename, "review")
         return {"status": "review", "reason": "sin_texto_extraido", "extraction_mode": mode}
     
     # 2. Parsear campos
@@ -98,29 +89,17 @@ def process_gasto(
     data = enforce_gastos_rules(data, subtipo)
     data["iva_deducible"] = determine_iva_deducible(data)
     
-    # 5. Si hay errores de validación, subir a REVIEW
+    # 5. Si hay errores de validación
     if data.get("review_reason"):
-        file_id = upload_to_drive(file_bytes, filename, "review")
-        data["drive_file_id"] = file_id or ""
         return {"status": "review", "reason": data["review_reason"], "data": data}
     
     # 6. Insertar en Sheet (con dedupe)
     status, row = append_movimiento_with_dedupe(data)
     
     if status == "duplicate":
-        # Subir a DUPLICADOS
-        file_id = upload_to_drive(file_bytes, filename, "duplicados")
-        data["drive_file_id"] = file_id or ""
         return {"status": "duplicate", "data": data}
     
     if status == "error":
-        # Subir a REVIEW
-        file_id = upload_to_drive(file_bytes, filename, "review")
-        data["drive_file_id"] = file_id or ""
         return {"status": "error", "reason": "error_sheets", "data": data}
-    
-    # 7. Subir a PROCESADAS
-    file_id = upload_to_drive(file_bytes, filename, "procesadas")
-    data["drive_file_id"] = file_id or ""
     
     return {"status": "processed", "row": row, "data": data}

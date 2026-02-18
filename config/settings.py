@@ -11,6 +11,7 @@ SHEET_ID = "1putS_YxGiLGiBzaFxCIzrF6p5AsNxQJoX0EYTDsfen0"
 
 # Pestañas
 WS_MOVIMIENTOS = "movimientos"
+WS_BORRADOR = "borrador_emitidas"
 
 # =========================
 # GOOGLE DRIVE - CARPETAS
