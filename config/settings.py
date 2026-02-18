@@ -15,9 +15,9 @@ WS_MOVIMIENTOS = "movimientos"
 # =========================
 # GOOGLE DRIVE - CARPETAS
 # =========================
-FOLDER_PROCESADAS = "1UkSSx87nmyaqTnKvQ6y7D9wZSh4PnV0A"
-FOLDER_DUPLICADOS = "19MjOtuCtPpmJisnOf8yP_eN9wP-llBGr"
-FOLDER_REVIEW = "15W_-ChsyTvd7Rz7cKZG46glspryQ7Uu7"
+FOLDER_PROCESADAS = "1doiwiLU4RsSnWt_oCQgtxzleKeJwF7GW"
+FOLDER_DUPLICADOS = "1XbkuCYPmSoIFAMnJeEMYuvjlXwGiEJ6p"
+FOLDER_REVIEW = "1UkdmXDTew35o2gEubPQ4Uv1TL0gAphoQ"
 
 # =========================
 # SCOPES GOOGLE
