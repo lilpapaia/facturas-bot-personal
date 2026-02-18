@@ -5,7 +5,7 @@ Versión WEB - usa Streamlit secrets para credenciales.
 """
 import io
 import re
-from typing import Optional
+from typing import Optional, List, Dict
 
 import streamlit as st
 from google.oauth2.service_account import Credentials
@@ -16,6 +16,7 @@ from config.settings import (
     FOLDER_PROCESADAS, 
     FOLDER_DUPLICADOS, 
     FOLDER_REVIEW,
+    FOLDER_EMITIDAS,
     GOOGLE_SCOPES,
 )
 
@@ -63,7 +64,7 @@ def upload_to_drive(
     Args:
         file_bytes: Contenido del archivo en bytes
         filename: Nombre del archivo
-        folder_type: "procesadas", "duplicados", o "review"
+        folder_type: "procesadas", "duplicados", "review", o "emitidas"
     
     Returns:
         ID del archivo en Drive, o None si falla
@@ -73,6 +74,7 @@ def upload_to_drive(
         "procesadas": FOLDER_PROCESADAS,
         "duplicados": FOLDER_DUPLICADOS,
         "review": FOLDER_REVIEW,
+        "emitidas": FOLDER_EMITIDAS,
     }
     folder_id = folder_map.get(folder_type, FOLDER_PROCESADAS)
     
@@ -110,4 +112,62 @@ def upload_to_drive(
     
     except Exception as e:
         st.error(f"Error subiendo a Drive: {e}")
+        return None
+
+
+def list_files_in_folder(folder_type: str = "emitidas") -> List[Dict]:
+    """
+    Lista archivos en una carpeta de Drive.
+    
+    Args:
+        folder_type: "procesadas", "duplicados", "review", o "emitidas"
+    
+    Returns:
+        Lista de dicts con id, name, createdTime
+    """
+    folder_map = {
+        "procesadas": FOLDER_PROCESADAS,
+        "duplicados": FOLDER_DUPLICADOS,
+        "review": FOLDER_REVIEW,
+        "emitidas": FOLDER_EMITIDAS,
+    }
+    folder_id = folder_map.get(folder_type, FOLDER_EMITIDAS)
+    
+    try:
+        service = get_drive_service()
+        
+        results = service.files().list(
+            q=f"'{folder_id}' in parents and trashed=false",
+            fields="files(id, name, createdTime, mimeType)",
+            orderBy="createdTime desc"
+        ).execute()
+        
+        return results.get("files", [])
+    
+    except Exception as e:
+        st.error(f"Error listando archivos: {e}")
+        return []
+
+
+def download_file_bytes(file_id: str) -> Optional[bytes]:
+    """
+    Descarga un archivo de Drive como bytes.
+    
+    Args:
+        file_id: ID del archivo en Drive
+    
+    Returns:
+        Contenido del archivo en bytes, o None si falla
+    """
+    try:
+        service = get_drive_service()
+        request = service.files().get_media(fileId=file_id)
+        
+        file_bytes = io.BytesIO()
+        downloader = request.execute()
+        
+        return downloader
+    
+    except Exception as e:
+        st.error(f"Error descargando archivo: {e}")
         return None

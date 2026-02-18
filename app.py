@@ -7,9 +7,160 @@ import pandas as pd
 import re
 import time
 import hashlib
-from datetime import datetime
+import io
+from datetime import datetime, date
 
-from config.settings import SHEET_ID, WS_MOVIMIENTOS, GOOGLE_SCOPES, SUPPORTED_EXTENSIONS
+from config.settings import SHEET_ID, WS_MOVIMIENTOS, GOOGLE_SCOPES, SUPPORTED_EXTENSIONS, FOLDER_EMITIDAS
+
+
+# =========================
+# GENERACIÓN DE PDF DE FACTURA
+# =========================
+def generate_invoice_pdf(
+    numero_factura: str,
+    fecha: str,
+    cliente_nombre: str,
+    cliente_direccion: str,
+    cliente_cif: str,
+    conceptos: list,  # Lista de dicts: {descripcion, unidades, precio}
+    irpf_percent: float = 0.15,
+    iva_percent: float = 0.21,
+) -> bytes:
+    """
+    Genera un PDF de factura.
+    
+    Returns:
+        Bytes del PDF generado
+    """
+    from fpdf import FPDF
+    
+    # Calcular totales
+    subtotal = sum(c["unidades"] * c["precio"] for c in conceptos)
+    irpf = round(subtotal * irpf_percent, 2)
+    iva = round(subtotal * iva_percent, 2)
+    total = round(subtotal - irpf + iva, 2)
+    
+    # Crear PDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # Fuente
+    pdf.set_font("Helvetica", size=10)
+    
+    # Cabecera - Datos del emisor (derecha)
+    pdf.set_xy(120, 20)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 6, "Julio Taeño Muñoz", ln=True, align="R")
+    pdf.set_font("Helvetica", size=10)
+    pdf.set_x(120)
+    pdf.cell(0, 5, "NIF: 05337839E", ln=True, align="R")
+    pdf.set_x(120)
+    pdf.cell(0, 5, "C/Travesía de San Joaquín, 4", ln=True, align="R")
+    pdf.set_x(120)
+    pdf.cell(0, 5, "28320 - Pinto - Madrid", ln=True, align="R")
+    pdf.set_x(120)
+    pdf.cell(0, 5, "SPAIN", ln=True, align="R")
+    
+    # Número y fecha de factura
+    pdf.set_xy(20, 50)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(30, 6, "Número:", ln=False)
+    pdf.set_font("Helvetica", size=11)
+    pdf.cell(0, 6, numero_factura, ln=True)
+    
+    pdf.set_x(20)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(30, 6, "Fecha:", ln=False)
+    pdf.set_font("Helvetica", size=11)
+    pdf.cell(0, 6, fecha, ln=True)
+    
+    # Datos del cliente
+    pdf.set_xy(20, 70)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 6, "CLIENTE:", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    pdf.set_x(20)
+    pdf.multi_cell(100, 5, f"{cliente_nombre}\n{cliente_direccion}\n{cliente_cif}")
+    
+    # Tabla de conceptos
+    pdf.set_xy(20, 105)
+    
+    # Header de tabla
+    pdf.set_fill_color(31, 78, 121)  # Azul oscuro
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(80, 8, "Descripción", border=1, fill=True, align="C")
+    pdf.cell(25, 8, "Unidades", border=1, fill=True, align="C")
+    pdf.cell(30, 8, "Precio Un.", border=1, fill=True, align="C")
+    pdf.cell(35, 8, "Subtotal", border=1, fill=True, align="C")
+    pdf.ln()
+    
+    # Filas de conceptos
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", size=10)
+    for c in conceptos:
+        pdf.cell(80, 7, c["descripcion"][:40], border=1)
+        pdf.cell(25, 7, str(c["unidades"]), border=1, align="C")
+        pdf.cell(30, 7, f"{c['precio']:.2f} EUR", border=1, align="R")
+        pdf.cell(35, 7, f"{c['unidades'] * c['precio']:.2f} EUR", border=1, align="R")
+        pdf.ln()
+    
+    # Totales
+    y_totales = pdf.get_y() + 10
+    pdf.set_xy(115, y_totales)
+    
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(40, 7, "Subtotal:", border=0, align="R")
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(35, 7, f"{subtotal:.2f} EUR", border=0, align="R")
+    pdf.ln()
+    
+    pdf.set_x(115)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(40, 7, f"IRPF ({int(irpf_percent*100)}%):", border=0, align="R")
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(35, 7, f"-{irpf:.2f} EUR", border=0, align="R")
+    pdf.ln()
+    
+    pdf.set_x(115)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(40, 7, f"IVA ({int(iva_percent*100)}%):", border=0, align="R")
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(35, 7, f"{iva:.2f} EUR", border=0, align="R")
+    pdf.ln()
+    
+    pdf.set_x(115)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(40, 8, "TOTAL:", border="T", align="R")
+    pdf.cell(35, 8, f"{total:.2f} EUR", border="T", align="R")
+    
+    # Datos bancarios
+    pdf.set_xy(20, 220)
+    pdf.set_font("Helvetica", size=9)
+    pdf.cell(0, 5, "Forma de pago: Transferencia a 30 días.", ln=True)
+    pdf.cell(0, 5, "Cuenta bancaria: ES41 2100 3607 5613 0011 4646", ln=True)
+    pdf.cell(0, 5, "Swift: CAIXESBBXXX", ln=True)
+    
+    # Retornar bytes
+    return pdf.output()
+
+
+def get_next_invoice_number(year: int, existing_numbers: list) -> str:
+    """Genera el siguiente número de factura disponible."""
+    prefix = f"DAZZ_{year}_"
+    max_num = 0
+    
+    for num in existing_numbers:
+        if num and num.startswith(prefix):
+            try:
+                n = int(num.replace(prefix, ""))
+                if n > max_num:
+                    max_num = n
+            except:
+                pass
+    
+    return f"{prefix}{str(max_num + 1).zfill(3)}"
 
 
 # =========================
@@ -640,7 +791,7 @@ def main():
     st.divider()
     
     # Pestañas
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Resumen IVA", "📄 Facturas", "📤 Subir", "⚙️ Config"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Resumen IVA", "📄 Facturas", "📤 Subir", "📝 Crear Factura", "⏳ Pendientes", "⚙️ Config"])
     
     # TAB 1: Resumen IVA
     with tab1:
@@ -732,8 +883,260 @@ def main():
                 if st.button("🔄 Ver datos actualizados"):
                     st.rerun()
     
-    # TAB 4: Config
+    # TAB 4: Crear Factura
     with tab4:
+        st.subheader("📝 Crear Factura")
+        
+        st.markdown("Genera una nueva factura de ingresos.")
+        
+        # Obtener clientes existentes
+        clientes_list = []
+        if not df.empty and 'proveedor_cliente' in df.columns:
+            clientes_list = df[df['tipo'].str.lower() == 'ingreso']['proveedor_cliente'].dropna().unique().tolist()
+        
+        # Obtener números de factura existentes para calcular el siguiente
+        existing_numbers = []
+        if not df.empty and 'numero_factura' in df.columns:
+            existing_numbers = df['numero_factura'].dropna().tolist()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Número de factura (auto-generado)
+            current_year = datetime.now().year
+            suggested_number = get_next_invoice_number(current_year, existing_numbers)
+            numero_factura = st.text_input("Número de Factura", value=suggested_number)
+            
+            # Fecha
+            fecha_factura = st.date_input("Fecha", value=date.today())
+        
+        with col2:
+            # Cliente
+            cliente_opcion = st.selectbox(
+                "Cliente",
+                options=["-- Nuevo cliente --"] + clientes_list,
+                index=0
+            )
+            
+            if cliente_opcion == "-- Nuevo cliente --":
+                cliente_nombre = st.text_input("Nombre del cliente")
+            else:
+                cliente_nombre = cliente_opcion
+        
+        cliente_direccion = st.text_input("Dirección del cliente", placeholder="C/ Example, 123 - 28000 Madrid")
+        cliente_cif = st.text_input("CIF/NIF del cliente", placeholder="B12345678")
+        
+        st.divider()
+        
+        # Conceptos
+        st.markdown("### Conceptos")
+        
+        # Inicializar conceptos en session_state
+        if "conceptos" not in st.session_state:
+            st.session_state.conceptos = [{"descripcion": "", "unidades": 1, "precio": 0.0}]
+        
+        total_subtotal = 0
+        conceptos_validos = []
+        
+        for i, concepto in enumerate(st.session_state.conceptos):
+            col1, col2, col3, col4 = st.columns([4, 1, 2, 1])
+            
+            with col1:
+                desc = st.text_input(f"Descripción", key=f"desc_{i}", value=concepto.get("descripcion", ""))
+            with col2:
+                unid = st.number_input(f"Uds", key=f"unid_{i}", value=concepto.get("unidades", 1), min_value=1)
+            with col3:
+                precio = st.number_input(f"Precio €", key=f"precio_{i}", value=concepto.get("precio", 0.0), min_value=0.0, step=10.0)
+            with col4:
+                subtotal_linea = unid * precio
+                st.markdown(f"**{subtotal_linea:.2f} €**")
+            
+            if desc and precio > 0:
+                conceptos_validos.append({"descripcion": desc, "unidades": unid, "precio": precio})
+                total_subtotal += subtotal_linea
+            
+            st.session_state.conceptos[i] = {"descripcion": desc, "unidades": unid, "precio": precio}
+        
+        col_add, col_remove = st.columns(2)
+        with col_add:
+            if st.button("➕ Añadir línea"):
+                st.session_state.conceptos.append({"descripcion": "", "unidades": 1, "precio": 0.0})
+                st.rerun()
+        with col_remove:
+            if len(st.session_state.conceptos) > 1 and st.button("➖ Quitar última"):
+                st.session_state.conceptos.pop()
+                st.rerun()
+        
+        st.divider()
+        
+        # Resumen
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            irpf_percent = st.selectbox("IRPF", [0.15, 0.07, 0.0], format_func=lambda x: f"{int(x*100)}%")
+            iva_percent = st.selectbox("IVA", [0.21, 0.10, 0.04, 0.0], format_func=lambda x: f"{int(x*100)}%")
+        
+        with col2:
+            irpf_amount = round(total_subtotal * irpf_percent, 2)
+            iva_amount = round(total_subtotal * iva_percent, 2)
+            total_final = round(total_subtotal - irpf_amount + iva_amount, 2)
+            
+            st.metric("Subtotal", f"{total_subtotal:.2f} €")
+            st.metric("IRPF", f"-{irpf_amount:.2f} €")
+            st.metric("IVA", f"+{iva_amount:.2f} €")
+            st.metric("**TOTAL**", f"**{total_final:.2f} €**")
+        
+        st.divider()
+        
+        # Generar factura
+        if st.button("🚀 Generar Factura", type="primary", use_container_width=True):
+            # Validaciones
+            if not numero_factura:
+                st.error("Falta el número de factura")
+            elif not cliente_nombre:
+                st.error("Falta el nombre del cliente")
+            elif not conceptos_validos:
+                st.error("Añade al menos un concepto con descripción y precio")
+            else:
+                with st.spinner("Generando factura..."):
+                    try:
+                        # Generar PDF
+                        pdf_bytes = generate_invoice_pdf(
+                            numero_factura=numero_factura,
+                            fecha=fecha_factura.strftime("%Y-%m-%d"),
+                            cliente_nombre=cliente_nombre,
+                            cliente_direccion=cliente_direccion or "",
+                            cliente_cif=cliente_cif or "",
+                            conceptos=conceptos_validos,
+                            irpf_percent=irpf_percent,
+                            iva_percent=iva_percent,
+                        )
+                        
+                        # Subir a EMITIDAS
+                        from core.drive import upload_to_drive
+                        filename = f"{numero_factura}.pdf"
+                        file_id = upload_to_drive(pdf_bytes, filename, "emitidas")
+                        
+                        if file_id:
+                            st.success(f"✅ Factura {numero_factura} generada y guardada en EMITIDAS")
+                            
+                            # Mostrar botones de descarga
+                            st.download_button(
+                                "📥 Descargar PDF",
+                                data=pdf_bytes,
+                                file_name=filename,
+                                mime="application/pdf"
+                            )
+                            
+                            # Limpiar formulario
+                            st.session_state.conceptos = [{"descripcion": "", "unidades": 1, "precio": 0.0}]
+                        else:
+                            st.error("Error guardando en Drive")
+                    
+                    except Exception as e:
+                        st.error(f"Error generando factura: {e}")
+    
+    # TAB 5: Pendientes
+    with tab5:
+        st.subheader("⏳ Facturas Pendientes de Procesar")
+        
+        st.markdown("""
+        Facturas en **EMITIDAS** que aún no están registradas en el Sheet.
+        Selecciona las que quieras procesar.
+        """)
+        
+        # Obtener archivos en EMITIDAS
+        from core.drive import list_files_in_folder
+        
+        with st.spinner("Cargando archivos de EMITIDAS..."):
+            emitidas_files = list_files_in_folder("emitidas")
+        
+        # Obtener archivos ya procesados (en Sheet)
+        archivos_en_sheet = set()
+        if not df.empty and 'archivo_drive' in df.columns:
+            archivos_en_sheet = set(df['archivo_drive'].dropna().str.lower().tolist())
+        
+        # Filtrar pendientes
+        pendientes = []
+        for f in emitidas_files:
+            nombre = f.get("name", "")
+            if nombre.lower() not in archivos_en_sheet and nombre.lower().endswith(".pdf"):
+                pendientes.append(f)
+        
+        if not pendientes:
+            st.info("✅ No hay facturas pendientes. Todas las de EMITIDAS ya están procesadas.")
+        else:
+            st.write(f"**{len(pendientes)} factura(s) pendiente(s)**")
+            
+            # Mostrar lista con checkboxes
+            seleccionados = []
+            
+            for f in pendientes:
+                nombre = f.get("name", "")
+                fecha_creacion = f.get("createdTime", "")[:10] if f.get("createdTime") else ""
+                
+                col1, col2, col3 = st.columns([0.5, 3, 2])
+                with col1:
+                    checked = st.checkbox("", key=f"check_{f['id']}")
+                    if checked:
+                        seleccionados.append(f)
+                with col2:
+                    st.write(f"📄 **{nombre}**")
+                with col3:
+                    st.write(f"Creado: {fecha_creacion}")
+            
+            st.divider()
+            
+            if seleccionados:
+                st.write(f"**{len(seleccionados)} seleccionada(s)**")
+                
+                if st.button("🚀 Procesar Seleccionadas", type="primary"):
+                    from ingresos.processor import process_ingreso
+                    from core.drive import get_drive_service
+                    from googleapiclient.http import MediaIoBaseDownload
+                    import io as io_module
+                    
+                    progress = st.progress(0)
+                    results = []
+                    
+                    for i, f in enumerate(seleccionados):
+                        try:
+                            # Descargar archivo
+                            service = get_drive_service()
+                            request = service.files().get_media(fileId=f['id'])
+                            fh = io_module.BytesIO()
+                            downloader = MediaIoBaseDownload(fh, request)
+                            done = False
+                            while not done:
+                                _, done = downloader.next_chunk()
+                            file_bytes = fh.getvalue()
+                            
+                            # Procesar
+                            result = process_ingreso(file_bytes, f['name'])
+                            results.append({"name": f['name'], "status": result.get("status"), "reason": result.get("reason", "")})
+                        
+                        except Exception as e:
+                            results.append({"name": f['name'], "status": "error", "reason": str(e)})
+                        
+                        progress.progress((i + 1) / len(seleccionados))
+                    
+                    # Mostrar resultados
+                    st.success("Procesamiento completado")
+                    
+                    for r in results:
+                        if r["status"] == "processed":
+                            st.write(f"✅ {r['name']}")
+                        elif r["status"] == "duplicate":
+                            st.write(f"⚠️ {r['name']} (duplicado)")
+                        else:
+                            st.write(f"❌ {r['name']}: {r['reason']}")
+                    
+                    # Limpiar caché
+                    load_movimientos.clear()
+                    st.button("🔄 Refrescar", on_click=lambda: st.rerun())
+    
+    # TAB 6: Config
+    with tab6:
         st.subheader("⚙️ Configuración")
         
         st.markdown("### 🔄 Sincronizar Registros")

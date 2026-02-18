@@ -10,6 +10,7 @@ google-api-python-client>=2.100.0
 # PDF processing
 pdfplumber>=0.10.0
 pymupdf>=1.23.0
+fpdf2>=2.7.0
 
 # Data
 pandas>=2.0.0
