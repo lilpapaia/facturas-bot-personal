@@ -78,6 +78,9 @@ def upload_to_drive(
     }
     folder_id = folder_map.get(folder_type, FOLDER_PROCESADAS)
     
+    # DEBUG
+    st.info(f"🔍 DEBUG: Intentando subir '{filename}' a carpeta '{folder_type}' (ID: {folder_id})")
+    
     # Determinar MIME type
     ext = filename.lower().split('.')[-1] if '.' in filename else ''
     mime_types = {
@@ -91,6 +94,13 @@ def upload_to_drive(
     try:
         service = get_drive_service()
         
+        # DEBUG: Verificar permisos de la carpeta
+        try:
+            folder_info = service.files().get(fileId=folder_id, fields="id,name,owners,permissions").execute()
+            st.info(f"🔍 DEBUG: Carpeta encontrada: {folder_info.get('name')}")
+        except Exception as e:
+            st.error(f"🔍 DEBUG: No puedo acceder a la carpeta: {e}")
+        
         file_metadata = {
             "name": filename,
             "parents": [folder_id],
@@ -102,12 +112,16 @@ def upload_to_drive(
             resumable=True
         )
         
+        st.info(f"🔍 DEBUG: Ejecutando upload...")
+        
         file = service.files().create(
             body=file_metadata,
             media_body=media,
-            fields="id"
+            fields="id",
+            supportsAllDrives=True  # Añadido para soportar shared drives
         ).execute()
         
+        st.success(f"🔍 DEBUG: Archivo subido con ID: {file.get('id')}")
         return file.get("id")
     
     except Exception as e:
