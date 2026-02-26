@@ -127,8 +127,8 @@ def generate_invoice_pdf(
             pdf.set_fill_color(255, 255, 255)
         pdf.cell(85, 7, f" {c['descripcion'][:45]}", border=1, fill=True, align="L")
         pdf.cell(20, 7, str(c["unidades"]), border=1, fill=True, align="C")
-        pdf.cell(30, 7, f"{c['precio']:.2f} €", border=1, fill=True, align="R")
-        pdf.cell(35, 7, f"{c['unidades'] * c['precio']:.2f} €", border=1, fill=True, align="R")
+        pdf.cell(30, 7, f"{c['precio']:.2f} EUR", border=1, fill=True, align="R")
+        pdf.cell(35, 7, f"{c['unidades'] * c['precio']:.2f} EUR", border=1, fill=True, align="R")
         pdf.ln()
         fill_row = not fill_row
     
@@ -139,21 +139,21 @@ def generate_invoice_pdf(
     pdf.set_xy(110, y_totales)
     pdf.set_font("Helvetica", size=9)
     pdf.cell(40, 6, "Subtotal:", border=0, align="R")
-    pdf.cell(35, 6, f"{subtotal:.2f} €", border=0, align="R")
+    pdf.cell(35, 6, f"{subtotal:.2f} EUR", border=0, align="R")
     pdf.ln()
     
     if irpf_percent > 0:
         pdf.set_x(110)
         pdf.cell(40, 6, f"IRPF ({int(irpf_percent*100)}%):", border=0, align="R")
         pdf.set_text_color(180, 0, 0)
-        pdf.cell(35, 6, f"-{irpf:.2f} €", border=0, align="R")
+        pdf.cell(35, 6, f"-{irpf:.2f} EUR", border=0, align="R")
         pdf.set_text_color(0, 0, 0)
         pdf.ln()
     
     if iva_percent > 0:
         pdf.set_x(110)
         pdf.cell(40, 6, f"IVA ({int(iva_percent*100)}%):", border=0, align="R")
-        pdf.cell(35, 6, f"+{iva:.2f} €", border=0, align="R")
+        pdf.cell(35, 6, f"+{iva:.2f} EUR", border=0, align="R")
         pdf.ln()
     
     # Total final con fondo
@@ -162,7 +162,7 @@ def generate_invoice_pdf(
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(40, 10, "TOTAL:", border=0, fill=True, align="R")
-    pdf.cell(35, 10, f"{total:.2f} €", border=0, fill=True, align="R")
+    pdf.cell(35, 10, f"{total:.2f} EUR", border=0, fill=True, align="R")
     
     # === DATOS BANCARIOS ===
     pdf.set_text_color(0, 0, 0)
