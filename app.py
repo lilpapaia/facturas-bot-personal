@@ -1424,34 +1424,56 @@ Julio Taeño"""
                 help="Puedes adjuntar más archivos además de la factura"
             )
             
-            # Botón enviar
-            if st.button("📧 Enviar Email", type="primary"):
-                if not email_destino or "@" not in email_destino:
-                    st.error("Introduce un email válido")
-                else:
-                    with st.spinner("Enviando email..."):
-                        # Preparar adjuntos
-                        adjuntos = [(st.session_state['ultimo_pdf_nombre'], st.session_state['ultimo_pdf'])]
-                        
-                        # Añadir adjuntos extra
-                        for adj in adjuntos_extra:
-                            adjuntos.append((adj.name, adj.read()))
-                        
-                        # Enviar
-                        ok, msg = send_email_with_attachments(
-                            to_email=email_destino,
-                            subject=asunto,
-                            body=cuerpo,
-                            attachments=adjuntos
-                        )
-                        
-                        if ok:
-                            st.success(f"✅ Email enviado a {email_destino}")
-                            # Limpiar session
-                            del st.session_state['ultimo_pdf']
-                            del st.session_state['ultimo_pdf_nombre']
-                        else:
-                            st.error(msg)
+            # Botón enviar Email y WhatsApp
+            col_email, col_whatsapp = st.columns(2)
+            
+            with col_email:
+                if st.button("📧 Enviar Email", type="primary", use_container_width=True):
+                    if not email_destino or "@" not in email_destino:
+                        st.error("Introduce un email válido")
+                    else:
+                        with st.spinner("Enviando email..."):
+                            # Preparar adjuntos
+                            adjuntos = [(st.session_state['ultimo_pdf_nombre'], st.session_state['ultimo_pdf'])]
+                            
+                            # Añadir adjuntos extra
+                            for adj in adjuntos_extra:
+                                adjuntos.append((adj.name, adj.read()))
+                            
+                            # Enviar
+                            ok, msg = send_email_with_attachments(
+                                to_email=email_destino,
+                                subject=asunto,
+                                body=cuerpo,
+                                attachments=adjuntos
+                            )
+                            
+                            if ok:
+                                st.success(f"✅ Email enviado a {email_destino}")
+                                # Limpiar session
+                                del st.session_state['ultimo_pdf']
+                                del st.session_state['ultimo_pdf_nombre']
+                            else:
+                                st.error(msg)
+            
+            with col_whatsapp:
+                # Crear mensaje para WhatsApp
+                mensaje_whatsapp = f"""Hola,
+
+Te envío la factura {st.session_state.get('ultimo_numero', '')} por un total de {st.session_state.get('ultimo_total', 0):.2f} EUR.
+
+Un saludo,
+Julio Taeño"""
+                
+                # Codificar mensaje para URL
+                import urllib.parse
+                mensaje_encoded = urllib.parse.quote(mensaje_whatsapp)
+                
+                # Link de WhatsApp (sin número = abre para elegir contacto)
+                whatsapp_url = f"https://wa.me/?text={mensaje_encoded}"
+                
+                st.link_button("💬 Enviar por WhatsApp", whatsapp_url, use_container_width=True)
+                st.caption("Se abrirá WhatsApp Web. Adjunta el PDF manualmente.")
     
     # TAB 5: Pendientes
     with tab5:

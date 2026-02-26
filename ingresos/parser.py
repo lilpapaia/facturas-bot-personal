@@ -274,6 +274,24 @@ def norm_invoice_id(s: Optional[str]) -> Optional[str]:
 # =========================
 def find_date_invoice(text: str) -> Optional[str]:
     """Busca la fecha de factura."""
+    
+    # 1) Primero buscar formato YYYY-MM-DD (nuestras facturas)
+    m = re.search(r"\bFecha[:\s]+(\d{4}[-/]\d{2}[-/]\d{2})\b", text, flags=re.IGNORECASE)
+    if m:
+        try:
+            return dateparser.parse(m.group(1)).date().isoformat()
+        except:
+            pass
+    
+    # 2) Formato "Date: YYYY-MM-DD"
+    m = re.search(r"\bDate[:\s]+(\d{4}[-/]\d{2}[-/]\d{2})\b", text, flags=re.IGNORECASE)
+    if m:
+        try:
+            return dateparser.parse(m.group(1)).date().isoformat()
+        except:
+            pass
+    
+    # 3) Patrones DD/MM/YYYY con etiqueta
     for pat in [
         r"\bFecha\s*Valor\b[:\s]*([0-3]?\d[\.\/\-][01]?\d[\.\/\-]\d{2,4})",
         r"\bInvoice\s*Date[:\s]*([0-3]?\d[\.\/\-][01]?\d[\.\/\-]\d{2,4})",
@@ -287,7 +305,8 @@ def find_date_invoice(text: str) -> Optional[str]:
             except Exception:
                 pass
 
-    m = re.search(r"([0-3]?\d[\.\/\-][01]?\d[\.\/\-]\d{2,4})", text)
+    # 4) Último recurso: cualquier fecha en formato DD/MM/YYYY
+    m = re.search(r"([0-3]?\d[\.\/\-][01]?\d[\.\/\-]\d{4})", text)
     if m:
         try:
             return dateparser.parse(m.group(1), dayfirst=True).date().isoformat()
@@ -301,29 +320,34 @@ def find_date_invoice(text: str) -> Optional[str]:
 # =========================
 def find_base_invoice(text: str) -> Optional[float]:
     """Busca la base imponible."""
-    matches = re.findall(r"\bSubtotal\b\s*([\-]?\d[\d\.\,]*)", text, flags=re.IGNORECASE)
-    if matches:
-        return normalize_amount(matches[-1])
-    matches = re.findall(r"\bSub-?Total\b.*?([\-]?\d[\d\.\,]*)", text, flags=re.IGNORECASE)
-    if matches:
-        return normalize_amount(matches[-1])
-    matches = re.findall(r"\bBase\s+Imponible\b.*?([\-]?\d[\d\.\,]*)", text, flags=re.IGNORECASE)
-    if matches:
-        return normalize_amount(matches[-1])
+    for pat in [
+        r"\bSubtotal\b[:\s]+([\-]?\d[\d\.\,]*)",   # Subtotal: 500.00
+        r"\bSubtotal\b\s*([\-]?\d[\d\.\,]*)",       # Subtotal 500.00
+        r"\bSub-?Total\b[:\s]*([\-]?\d[\d\.\,]*)",
+        r"\bBase\s+Imponible\b[:\s]*([\-]?\d[\d\.\,]*)",
+    ]:
+        m = re.search(pat, text, flags=re.IGNORECASE)
+        if m:
+            val = normalize_amount(m.group(1))
+            if val and val > 0:
+                return val
     return None
 
 
 def find_total_invoice(text: str) -> Optional[float]:
     """Busca el total de la factura."""
     for pat in [
-        r"\bTOTAL\s+FACTURA\b\s*([\-]?\d[\d\.\,]*)",
-        r"\bTOTAL\s+IN\s+EUROS\b\s*([\-]?\d[\d\.\,]*)",
-        r"\bImporte\s+Total\b.*?([\-]?\d[\d\.\,]*)",
-        r"\bTOTAL\b\s*([\-]?\d[\d\.\,]*)",
+        r"\bTOTAL\s+FACTURA\b[:\s]*([\-]?\d[\d\.\,]*)",
+        r"\bTOTAL\s+IN\s+EUROS\b[:\s]*([\-]?\d[\d\.\,]*)",
+        r"\bImporte\s+Total\b[:\s]*([\-]?\d[\d\.\,]*)",
+        r"\bTOTAL\b[:\s]+([\-]?\d[\d\.\,]*)",  # TOTAL: 530.00
+        r"\bTOTAL\b\s*([\-]?\d[\d\.\,]*)",      # TOTAL 530.00
     ]:
         m = re.search(pat, text, flags=re.IGNORECASE)
         if m:
-            return normalize_amount(m.group(1))
+            val = normalize_amount(m.group(1))
+            if val and val > 0:
+                return val
     return None
 
 
