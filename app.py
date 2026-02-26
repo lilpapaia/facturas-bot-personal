@@ -27,7 +27,7 @@ def generate_invoice_pdf(
     iva_percent: float = 0.21,
 ) -> bytes:
     """
-    Genera un PDF de factura.
+    Genera un PDF de factura con estilo profesional.
     
     Returns:
         Bytes del PDF generado
@@ -45,102 +45,138 @@ def generate_invoice_pdf(
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    # Fuente
-    pdf.set_font("Helvetica", size=10)
+    # === HEADER: FACTURA título ===
+    pdf.set_fill_color(139, 0, 0)  # Rojo oscuro
+    pdf.rect(0, 0, 210, 25, 'F')
+    pdf.set_xy(0, 8)
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 10, "FACTURA", align="C")
     
-    # Cabecera - Datos del emisor (derecha)
-    pdf.set_xy(120, 20)
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 6, "Julio Taeño Muñoz", ln=True, align="R")
-    pdf.set_font("Helvetica", size=10)
-    pdf.set_x(120)
-    pdf.cell(0, 5, "NIF: 05337839E", ln=True, align="R")
-    pdf.set_x(120)
-    pdf.cell(0, 5, "C/Travesía de San Joaquín, 4", ln=True, align="R")
-    pdf.set_x(120)
-    pdf.cell(0, 5, "28320 - Pinto - Madrid", ln=True, align="R")
-    pdf.set_x(120)
-    pdf.cell(0, 5, "SPAIN", ln=True, align="R")
-    
-    # Número y fecha de factura
-    pdf.set_xy(20, 50)
+    # === DATOS DEL EMISOR (derecha) ===
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(110, 35)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(30, 6, "Número:", ln=False)
-    pdf.set_font("Helvetica", size=11)
-    pdf.cell(0, 6, numero_factura, ln=True)
+    pdf.cell(0, 5, "Julio Taeño Muñoz", ln=True, align="R")
+    pdf.set_font("Helvetica", size=9)
+    pdf.set_x(110)
+    pdf.cell(0, 4, "NIF: 05337839E", ln=True, align="R")
+    pdf.set_x(110)
+    pdf.cell(0, 4, "C/Travesía de San Joaquín, 4", ln=True, align="R")
+    pdf.set_x(110)
+    pdf.cell(0, 4, "28320 - Pinto - Madrid", ln=True, align="R")
+    pdf.set_x(110)
+    pdf.cell(0, 4, "SPAIN", ln=True, align="R")
     
-    pdf.set_x(20)
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(30, 6, "Fecha:", ln=False)
-    pdf.set_font("Helvetica", size=11)
-    pdf.cell(0, 6, fecha, ln=True)
-    
-    # Datos del cliente
-    pdf.set_xy(20, 70)
+    # === NÚMERO Y FECHA ===
+    pdf.set_xy(20, 35)
+    pdf.set_fill_color(240, 240, 240)
     pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(0, 6, "CLIENTE:", ln=True)
-    pdf.set_font("Helvetica", size=10)
+    pdf.cell(25, 7, "Número:", border=0)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(139, 0, 0)
+    pdf.cell(50, 7, numero_factura, ln=True)
+    
+    pdf.set_text_color(0, 0, 0)
     pdf.set_x(20)
-    pdf.multi_cell(100, 5, f"{cliente_nombre}\n{cliente_direccion}\n{cliente_cif}")
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(25, 7, "Fecha:", border=0)
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(50, 7, fecha, ln=True)
     
-    # Tabla de conceptos
-    pdf.set_xy(20, 105)
-    
-    # Header de tabla
+    # === DATOS DEL CLIENTE ===
+    pdf.set_xy(20, 65)
     pdf.set_fill_color(31, 78, 121)  # Azul oscuro
     pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(90, 6, " FACTURAR A:", fill=True, ln=True)
+    
+    pdf.set_text_color(0, 0, 0)
     pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(80, 8, "Descripción", border=1, fill=True, align="C")
-    pdf.cell(25, 8, "Unidades", border=1, fill=True, align="C")
-    pdf.cell(30, 8, "Precio Un.", border=1, fill=True, align="C")
+    pdf.set_x(20)
+    pdf.cell(90, 6, cliente_nombre, ln=True)
+    pdf.set_font("Helvetica", size=9)
+    if cliente_direccion:
+        pdf.set_x(20)
+        pdf.multi_cell(90, 4, cliente_direccion)
+    if cliente_cif:
+        pdf.set_x(20)
+        pdf.cell(90, 5, f"CIF/NIF: {cliente_cif}", ln=True)
+    
+    # === TABLA DE CONCEPTOS ===
+    pdf.set_xy(20, 100)
+    
+    # Header de tabla
+    pdf.set_fill_color(31, 78, 121)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(85, 8, " Descripción", border=1, fill=True, align="L")
+    pdf.cell(20, 8, "Uds.", border=1, fill=True, align="C")
+    pdf.cell(30, 8, "Precio/Ud.", border=1, fill=True, align="C")
     pdf.cell(35, 8, "Subtotal", border=1, fill=True, align="C")
     pdf.ln()
     
     # Filas de conceptos
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Helvetica", size=10)
+    pdf.set_font("Helvetica", size=9)
+    fill_row = False
     for c in conceptos:
-        pdf.cell(80, 7, c["descripcion"][:40], border=1)
-        pdf.cell(25, 7, str(c["unidades"]), border=1, align="C")
-        pdf.cell(30, 7, f"{c['precio']:.2f} EUR", border=1, align="R")
-        pdf.cell(35, 7, f"{c['unidades'] * c['precio']:.2f} EUR", border=1, align="R")
+        if fill_row:
+            pdf.set_fill_color(245, 245, 245)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+        pdf.cell(85, 7, f" {c['descripcion'][:45]}", border=1, fill=True, align="L")
+        pdf.cell(20, 7, str(c["unidades"]), border=1, fill=True, align="C")
+        pdf.cell(30, 7, f"{c['precio']:.2f} €", border=1, fill=True, align="R")
+        pdf.cell(35, 7, f"{c['unidades'] * c['precio']:.2f} €", border=1, fill=True, align="R")
+        pdf.ln()
+        fill_row = not fill_row
+    
+    # === TOTALES ===
+    y_totales = pdf.get_y() + 5
+    
+    # Caja de totales
+    pdf.set_xy(110, y_totales)
+    pdf.set_font("Helvetica", size=9)
+    pdf.cell(40, 6, "Subtotal:", border=0, align="R")
+    pdf.cell(35, 6, f"{subtotal:.2f} €", border=0, align="R")
+    pdf.ln()
+    
+    if irpf_percent > 0:
+        pdf.set_x(110)
+        pdf.cell(40, 6, f"IRPF ({int(irpf_percent*100)}%):", border=0, align="R")
+        pdf.set_text_color(180, 0, 0)
+        pdf.cell(35, 6, f"-{irpf:.2f} €", border=0, align="R")
+        pdf.set_text_color(0, 0, 0)
         pdf.ln()
     
-    # Totales
-    y_totales = pdf.get_y() + 10
-    pdf.set_xy(115, y_totales)
+    if iva_percent > 0:
+        pdf.set_x(110)
+        pdf.cell(40, 6, f"IVA ({int(iva_percent*100)}%):", border=0, align="R")
+        pdf.cell(35, 6, f"+{iva:.2f} €", border=0, align="R")
+        pdf.ln()
     
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(40, 7, "Subtotal:", border=0, align="R")
-    pdf.set_font("Helvetica", size=10)
-    pdf.cell(35, 7, f"{subtotal:.2f} EUR", border=0, align="R")
-    pdf.ln()
+    # Total final con fondo
+    pdf.set_x(110)
+    pdf.set_fill_color(139, 0, 0)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(40, 10, "TOTAL:", border=0, fill=True, align="R")
+    pdf.cell(35, 10, f"{total:.2f} €", border=0, fill=True, align="R")
     
-    pdf.set_x(115)
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(40, 7, f"IRPF ({int(irpf_percent*100)}%):", border=0, align="R")
-    pdf.set_font("Helvetica", size=10)
-    pdf.cell(35, 7, f"-{irpf:.2f} EUR", border=0, align="R")
-    pdf.ln()
-    
-    pdf.set_x(115)
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(40, 7, f"IVA ({int(iva_percent*100)}%):", border=0, align="R")
-    pdf.set_font("Helvetica", size=10)
-    pdf.cell(35, 7, f"{iva:.2f} EUR", border=0, align="R")
-    pdf.ln()
-    
-    pdf.set_x(115)
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(40, 8, "TOTAL:", border="T", align="R")
-    pdf.cell(35, 8, f"{total:.2f} EUR", border="T", align="R")
-    
-    # Datos bancarios
-    pdf.set_xy(20, 220)
-    pdf.set_font("Helvetica", size=9)
-    pdf.cell(0, 5, "Forma de pago: Transferencia a 30 días.", ln=True)
-    pdf.cell(0, 5, "Cuenta bancaria: ES41 2100 3607 5613 0011 4646", ln=True)
-    pdf.cell(0, 5, "Swift: CAIXESBBXXX", ln=True)
+    # === DATOS BANCARIOS ===
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(20, 230)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.cell(170, 5, " DATOS DE PAGO", fill=True, ln=True)
+    pdf.set_font("Helvetica", size=8)
+    pdf.set_x(20)
+    pdf.cell(170, 4, "Forma de pago: Transferencia bancaria a 30 días", ln=True)
+    pdf.set_x(20)
+    pdf.cell(170, 4, "IBAN: ES41 2100 3607 5613 0011 4646", ln=True)
+    pdf.set_x(20)
+    pdf.cell(170, 4, "BIC/SWIFT: CAIXESBBXXX", ln=True)
     
     # Retornar bytes
     return bytes(pdf.output())
@@ -161,6 +197,99 @@ def get_next_invoice_number(year: int, existing_numbers: list) -> str:
                 pass
     
     return f"{prefix}{str(max_num + 1).zfill(3)}"
+
+
+# =========================
+# ENVÍO DE EMAIL
+# =========================
+def send_email_with_attachments(
+    to_email: str,
+    subject: str,
+    body: str,
+    attachments: list,  # Lista de tuples: (filename, bytes)
+) -> tuple:
+    """
+    Envía un email con adjuntos usando SMTP de Gmail.
+    
+    Returns:
+        (success: bool, message: str)
+    """
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+    
+    try:
+        sender_email = st.secrets["email"]["sender"]
+        sender_password = st.secrets["email"]["password"]
+    except KeyError:
+        return False, "Configura email en Streamlit secrets"
+    
+    try:
+        # Crear mensaje
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        
+        # Cuerpo
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Adjuntos
+        for filename, file_bytes in attachments:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(file_bytes)
+            encoders.encode_base64(part)
+            part.add_header(
+                'Content-Disposition',
+                f'attachment; filename= {filename}'
+            )
+            msg.attach(part)
+        
+        # Enviar
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, to_email, msg.as_string())
+        server.quit()
+        
+        return True, "Email enviado correctamente"
+    
+    except smtplib.SMTPAuthenticationError:
+        return False, "Error de autenticación. Verifica la contraseña de aplicación."
+    except Exception as e:
+        return False, f"Error enviando email: {str(e)}"
+
+
+def get_clientes_con_email():
+    """Obtiene lista de clientes con su email desde el Sheet."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open_by_key(SHEET_ID)
+        ws = sh.worksheet("clientes")
+        
+        all_values = ws.get_all_values()
+        if len(all_values) < 2:
+            return {}
+        
+        headers = all_values[0]
+        cliente_col = headers.index("cliente") if "cliente" in headers else -1
+        email_col = headers.index("email") if "email" in headers else -1
+        
+        if cliente_col == -1:
+            return {}
+        
+        clientes = {}
+        for row in all_values[1:]:
+            if len(row) > cliente_col and row[cliente_col].strip():
+                cliente = row[cliente_col].strip()
+                email = row[email_col].strip() if email_col != -1 and len(row) > email_col else ""
+                clientes[cliente] = email
+        
+        return clientes
+    except:
+        return {}
 
 
 # =========================
@@ -329,7 +458,7 @@ def load_borrador():
 
 
 def save_to_borrador(data: dict):
-    """Guarda una factura en borrador_emitidas."""
+    """Guarda una factura en borrador_emitidas con estilo."""
     try:
         gc = get_gspread_client()
         sh = gc.open_by_key(SHEET_ID)
@@ -338,11 +467,38 @@ def save_to_borrador(data: dict):
         # Obtener headers
         headers = ws.row_values(1)
         
-        # Si no hay headers, crearlos (mismos que movimientos)
+        # Si no hay headers, crearlos (mismos que movimientos) y aplicar estilo
         if not headers or headers[0] == '':
             ws_mov = sh.worksheet(WS_MOVIMIENTOS)
             headers = ws_mov.row_values(1)
             ws.update('A1', [headers])
+            time.sleep(1)
+            
+            # Aplicar formato al header (azul como movimientos)
+            ws_id = ws.id
+            requests = [{
+                "repeatCell": {
+                    "range": {
+                        "sheetId": ws_id,
+                        "startRowIndex": 0,
+                        "endRowIndex": 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": len(headers),
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {"red": 0.122, "green": 0.306, "blue": 0.475},
+                            "textFormat": {
+                                "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+                                "bold": True
+                            },
+                            "horizontalAlignment": "CENTER"
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+                }
+            }]
+            sh.batch_update({"requests": requests})
             time.sleep(1)
         
         # Construir fila
@@ -1181,6 +1337,13 @@ def main():
                         if saved:
                             st.success(f"✅ Factura {numero_factura} creada y guardada en Pendientes")
                             
+                            # Guardar PDF en session_state para envío posterior
+                            st.session_state['ultimo_pdf'] = pdf_bytes
+                            st.session_state['ultimo_pdf_nombre'] = filename
+                            st.session_state['ultimo_cliente'] = cliente_nombre
+                            st.session_state['ultimo_total'] = total_final
+                            st.session_state['ultimo_numero'] = numero_factura
+                            
                             # Botón de descarga
                             st.download_button(
                                 "📥 Descargar PDF",
@@ -1206,6 +1369,89 @@ def main():
                     
                     except Exception as e:
                         st.error(f"Error generando factura: {e}")
+        
+        # Sección de envío de email (aparece si hay factura generada)
+        if st.session_state.get('ultimo_pdf'):
+            st.divider()
+            st.markdown("### 📧 Enviar Factura por Email")
+            
+            # Obtener clientes con email
+            clientes_email = get_clientes_con_email()
+            
+            # Selector de destinatario
+            col1, col2 = st.columns([2, 2])
+            
+            with col1:
+                ultimo_cliente = st.session_state.get('ultimo_cliente', '')
+                email_cliente = clientes_email.get(ultimo_cliente, '')
+                
+                opciones_email = ["Escribir email manualmente"]
+                if email_cliente:
+                    opciones_email.insert(0, f"{ultimo_cliente} ({email_cliente})")
+                
+                # Añadir otros clientes con email
+                for cli, email in clientes_email.items():
+                    if email and cli != ultimo_cliente:
+                        opciones_email.append(f"{cli} ({email})")
+                
+                seleccion_email = st.selectbox("Destinatario", opciones_email)
+                
+                if seleccion_email == "Escribir email manualmente":
+                    email_destino = st.text_input("Email", placeholder="cliente@empresa.com")
+                else:
+                    # Extraer email del string "Cliente (email@...)"
+                    email_destino = seleccion_email.split("(")[-1].replace(")", "").strip()
+            
+            with col2:
+                asunto_default = f"Factura {st.session_state.get('ultimo_numero', '')}"
+                asunto = st.text_input("Asunto", value=asunto_default)
+            
+            cuerpo_default = f"""Estimado/a cliente,
+
+Adjunto le envío la factura {st.session_state.get('ultimo_numero', '')} por un total de {st.session_state.get('ultimo_total', 0):.2f} €.
+
+Quedo a su disposición para cualquier consulta.
+
+Un saludo,
+Julio Taeño"""
+            
+            cuerpo = st.text_area("Mensaje", value=cuerpo_default, height=150)
+            
+            # Adjuntos adicionales
+            adjuntos_extra = st.file_uploader(
+                "Adjuntos adicionales (opcional)",
+                accept_multiple_files=True,
+                help="Puedes adjuntar más archivos además de la factura"
+            )
+            
+            # Botón enviar
+            if st.button("📧 Enviar Email", type="primary"):
+                if not email_destino or "@" not in email_destino:
+                    st.error("Introduce un email válido")
+                else:
+                    with st.spinner("Enviando email..."):
+                        # Preparar adjuntos
+                        adjuntos = [(st.session_state['ultimo_pdf_nombre'], st.session_state['ultimo_pdf'])]
+                        
+                        # Añadir adjuntos extra
+                        for adj in adjuntos_extra:
+                            adjuntos.append((adj.name, adj.read()))
+                        
+                        # Enviar
+                        ok, msg = send_email_with_attachments(
+                            to_email=email_destino,
+                            subject=asunto,
+                            body=cuerpo,
+                            attachments=adjuntos
+                        )
+                        
+                        if ok:
+                            st.success(f"✅ Email enviado a {email_destino}")
+                            # Limpiar session
+                            del st.session_state['ultimo_pdf']
+                            del st.session_state['ultimo_pdf_nombre']
+                        else:
+                            st.error(msg)
     
     # TAB 5: Pendientes
     with tab5:
